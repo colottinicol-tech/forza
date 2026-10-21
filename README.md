@@ -3,7 +3,7 @@
 App per iPhone (PWA) per gestire la programmazione 5/3/1 e registrare gli allenamenti.
 Funziona offline e tiene tutti i dati sul telefono: niente server, niente account.
 
-Indirizzo dell'app: `https://<utente-github>.github.io/forza/`
+Indirizzo dell'app: https://colottinicol-tech.github.io/forza/
 
 ## Come si aggiorna l'app
 
