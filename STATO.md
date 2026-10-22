@@ -30,6 +30,9 @@
   tocchi il numero per scriverne un altro). Tolta la colonna a destra.
 - Tolti del tutto i dischi (calcolatore, primo avvio, impostazioni): «keep it simple».
 
+## Versione 0.4.2
+- Set «+» come nella nota: la base resta (102,5 kg × 5+) e si scrivono solo le reps in più (5+3); sotto «8 reps · e1RM».
+
 ## In sospeso
 - **Il programma di Nicolò**: ora ha 4 giorni (Upper A, Lower A, Upper B, Lower B). Servono i loro esercizi per rifare
   `privato/programma.json` nel nuovo formato. La bozza Gmail «Forza – programma da importare» è nel formato VECCHIO:

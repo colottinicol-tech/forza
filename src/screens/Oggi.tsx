@@ -411,7 +411,9 @@ function SetLine({
   onReps: (v: number | null) => void
   onWeight: (v: number | null) => void
 }) {
-  const est = set.type === 'plus' && set.reps !== null && set.weight ? e1rm(set.weight, set.reps + bonus) : 0
+  const plus = set.type === 'plus'
+  const base = set.targetReps ?? 0
+  const est = plus && set.reps !== null && set.weight ? e1rm(set.weight, set.reps + bonus) : 0
   const prefix = loadType === 'assisted' ? 'assist. ' : loadType === 'weighted' ? '+' : ''
   return (
     <div className="flex min-h-[52px] items-center gap-2 pl-3 select-none [&+&]:border-t-[0.5px] [&+&]:border-sep">
@@ -437,7 +439,24 @@ function SetLine({
             <span>{weightText(set.weight, loadType)}</span>
           )}
           <span className="mx-2 text-label-3">×</span>
-          {editable ? (
+          {plus ? (
+            // Set "+": la base resta (5+) e si scrivono le reps in più, come nella nota: 5+3 = 8.
+            <>
+              <span className={set.done ? 'font-semibold' : 'text-label-2'}>{base}+</span>
+              {editable ? (
+                <NumInput
+                  value={set.reps === null ? null : Math.max(0, set.reps - base)}
+                  onChange={(extra) => onReps(extra === null ? null : base + extra)}
+                  placeholder="0"
+                  autoWidth
+                  ariaLabel="Reps in più"
+                  className="min-w-[2ch] rounded-md px-0 text-left font-semibold"
+                />
+              ) : (
+                set.done && <span className="font-semibold">{Math.max(0, repsDone(set) - base)}</span>
+              )}
+            </>
+          ) : editable ? (
             <NumInput
               value={set.reps}
               onChange={onReps}
@@ -450,7 +469,11 @@ function SetLine({
             <span className={set.done ? 'font-semibold' : 'text-label-3'}>{set.done ? repsDone(set) : targetText(set)}</span>
           )}
         </span>
-        {est > 0 && <span className="text-[12px] text-label-2">e1RM {formatKg(Math.round(est * 10) / 10)} kg</span>}
+        {est > 0 && (
+          <span className="text-[12px] text-label-2">
+            {set.reps} reps · e1RM {formatKg(Math.round(est * 10) / 10)} kg
+          </span>
+        )}
       </span>
     </div>
   )
