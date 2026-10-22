@@ -8,8 +8,8 @@ import { Programma } from './screens/Programma'
 import { Progressi } from './screens/Progressi'
 import { Storico } from './screens/Storico'
 
-const SCREENS: Record<TabId, () => React.JSX.Element> = {
-  oggi: Oggi,
+const SCREENS: Record<TabId, (p: { go: (id: TabId) => void }) => React.JSX.Element | null> = {
+  oggi: ({ go }) => <Oggi onImport={() => go('impostazioni')} />,
   programma: Programma,
   storico: Storico,
   progressi: Progressi,
@@ -51,7 +51,7 @@ export default function App() {
       >
         <UpdateBanner />
         <SafariNotice />
-        <Current />
+        <Current go={select} />
       </main>
       <TabBar active={tab} onSelect={select} />
     </>
