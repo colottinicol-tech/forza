@@ -22,6 +22,11 @@ export function useDays(): Day[] | undefined {
   return useLiveQuery(() => db.days.orderBy('order').toArray(), [])
 }
 
+/** Tutti i giorni salvati, anche quelli iniziati e non ancora finiti. */
+export function useSessions(): Session[] | undefined {
+  return useLiveQuery(() => db.sessions.orderBy('startedAt').reverse().toArray(), [])
+}
+
 export function useDoneSessions(): Session[] | undefined {
   return useLiveQuery(async () => {
     const all = await db.sessions.orderBy('startedAt').reverse().toArray()

@@ -1,16 +1,17 @@
-// Oggi: il programma come una nota. Ciclo → settimane → giorni da spuntare.
-// Tocchi un giorno, vedi cosa fare, alla fine "Fatto".
-import { useMemo, useState } from 'react'
-import { Button, Sheet, Stepper } from '../components/controls'
+// Oggi: il programma come una nota. Ciclo → settimane → giorni con il pallino da spuntare.
+// Tocchi il pallino per spuntare il giorno, oppure il nome per aprirlo e scrivere le reps serie per serie.
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Stepper } from '../components/controls'
 import { PlateCalculator } from '../components/PlateCalculator'
-import { EmptyState, Group, Screen } from '../components/ui'
+import { Chevron, EmptyState, Group, Screen } from '../components/ui'
 import { exportBackup } from '../lib/dataio'
-import { lastSetsByExercise, markDayDone, setTm, unmarkDay } from '../lib/db'
+import { editSession, ensureDraft, lastSetsByExercise, markDayDone, setTm, unmarkDay } from '../lib/db'
 import { formatKg, targetText, weightText } from '../lib/format'
-import { useDays, useDoneSessions, useExercises, useLifts, useSettings, useWakeLock } from '../lib/hooks'
+import { useDays, useExercises, useLifts, useSessions, useSettings, useWakeLock } from '../lib/hooks'
 import { buildMainSets, positionLabel, slotKey, WEEK_LABEL, weeksOfCycle } from '../lib/program531'
-import { planDay, plusSets, repsDone, type BuildContext } from '../lib/session'
-import type { CycleConfig, Day, Exercise, Lift, Position, Session, SessionExercise, Settings, WeekKind } from '../lib/types'
+import { planDay, repsDone, type BuildContext } from '../lib/session'
+import type { CycleConfig, Day, Exercise, Lift, Position, Session, SessionSet, Settings, WeekKind } from '../lib/types'
+import { e1rm } from '../lib/weights'
 
 const BACKUP_DAYS = 14
 
@@ -47,26 +48,48 @@ export function Oggi({ onImport }: { onImport: () => void }) {
   const days = useDays()
   const lifts = useLifts()
   const exercises = useExercises()
-  const done = useDoneSessions()
-  const [open, setOpen] = useState<{ day: Day; slot: WeekSlot } | null>(null)
+  const sessions = useSessions()
+  const [open, setOpen] = useState<{ dayId: string; slot: WeekSlot; hint?: string } | null>(null)
+  const listScroll = useRef(0)
 
-  const ctx: BuildContext | null = useMemo(
-    () =>
-      settings && done
-        ? { settings, exercises, lifts: new Map(lifts.map((l) => [l.exerciseId, l])), lastSets: lastSetsByExercise(done) }
-        : null,
-    [settings, exercises, lifts, done],
-  )
-  if (!settings || !days || !done || !ctx) return null
+  const ctx: BuildContext | null = useMemo(() => {
+    if (!settings || !sessions) return null
+    const done = sessions.filter((s) => s.status === 'done')
+    return { settings, exercises, lifts: new Map(lifts.map((l) => [l.exerciseId, l])), lastSets: lastSetsByExercise(done) }
+  }, [settings, exercises, lifts, sessions])
+  if (!settings || !days || !sessions || !ctx) return null
 
   const cfg = settings.cycleConfig
   const pos = settings.position
+  const done = sessions.filter((s) => s.status === 'done')
   const bySlot = new Map<string, Session[]>()
-  for (const s of done) bySlot.set(s.slot, [...(bySlot.get(s.slot) ?? []), s])
-  const pending = lifts.filter((l) => l.pendingTm)
-  const backupDue =
-    done.length > 0 && (settings.lastBackupAt === null || Date.now() - settings.lastBackupAt > BACKUP_DAYS * 86_400_000)
-  const tmLine = lifts.map((l) => `${exercises.get(l.exerciseId)?.name ?? '?'} ${formatKg(l.tm)}`).join(' · ')
+  for (const s of sessions) bySlot.set(s.slot, [...(bySlot.get(s.slot) ?? []), s])
+  const entryOf = (slot: WeekSlot, dayId: string) => (bySlot.get(slotKey(slot.pos)) ?? []).find((s) => s.dayId === dayId)
+
+  const openDay = (dayId: string, slot: WeekSlot, hint?: string) => {
+    listScroll.current = window.scrollY
+    setOpen({ dayId, slot, hint })
+    window.scrollTo(0, 0)
+  }
+  const closeDay = () => {
+    setOpen(null)
+    requestAnimationFrame(() => window.scrollTo(0, listScroll.current))
+  }
+
+  const openedDay = open && days.find((d) => d.id === open.dayId)
+  if (open && openedDay) {
+    return (
+      <DayPage
+        day={openedDay}
+        slot={open.slot}
+        entry={entryOf(open.slot, open.dayId)}
+        hint={open.hint}
+        ctx={ctx}
+        backLabel={`Ciclo ${pos.cycle}`}
+        onBack={closeDay}
+      />
+    )
+  }
 
   if (days.length === 0) {
     return (
@@ -83,35 +106,47 @@ export function Oggi({ onImport }: { onImport: () => void }) {
     )
   }
 
+  /** Pallino del giorno: spunta o toglie la spunta, come nelle Note. */
+  const toggleDay = async (day: Day, slot: WeekSlot) => {
+    const entry = entryOf(slot, day.id)
+    if (entry?.status === 'done') {
+      if (!(await unmarkDay(entry))) openDay(day.id, slot, 'Non si può più togliere la spunta: nella settimana dopo hai già fatto un allenamento.')
+      return
+    }
+    if (slot.state !== 'current') return openDay(day.id, slot)
+    if ((await markDayDone(day)) === 'missing-plus') openDay(day.id, slot, 'Scrivi quante reps hai fatto nel set «+»: servono per il nuovo TM.')
+  }
+
   const renderCycle = (cycle: number) =>
-    cycleSlots(cfg, cycle, pos, done).map((slot) => {
-      const sessions = bySlot.get(slotKey(slot.pos)) ?? []
+    cycleSlots(cfg, cycle, pos, sessions).map((slot) => {
+      const inSlot = bySlot.get(slotKey(slot.pos)) ?? []
       // Settimane passate senza niente di spuntato (es. saltate o prima dell'inizio): non servono.
-      if (slot.state === 'past' && sessions.length === 0) return null
-      const firstOpen = slot.state === 'current' ? days.find((d) => !sessions.some((s) => s.dayId === d.id)) : undefined
+      if (slot.state === 'past' && !inSlot.some((s) => s.status === 'done')) return null
+      const firstOpen = slot.state === 'current' ? days.find((d) => !inSlot.some((s) => s.dayId === d.id && s.status === 'done')) : undefined
       return (
-        <Group
-          key={slotKey(slot.pos)}
-          header={`${WEEK_LABEL[slot.kind]}${slot.pos.extra ? ' extra' : ''}${slot.state === 'current' ? ' · questa settimana' : ''}`}
-        >
+        <Group key={slotKey(slot.pos)} header={`${WEEK_LABEL[slot.kind]}${slot.pos.extra ? ' extra' : ''}${slot.state === 'current' ? ' · questa settimana' : ''}`}>
           {days.map((d) => (
             <DayRow
               key={d.id}
               day={d}
               summary={mainSummary(d, slot.kind, ctx)}
-              done={sessions.some((s) => s.dayId === d.id)}
+              entry={inSlot.find((s) => s.dayId === d.id)}
               next={firstOpen?.id === d.id}
               dim={slot.state === 'future'}
-              onClick={() => setOpen({ day: d, slot })}
+              onOpen={() => openDay(d.id, slot)}
+              onToggle={() => void toggleDay(d, slot)}
             />
           ))}
         </Group>
       )
     })
 
+  const pending = lifts.filter((l) => l.pendingTm)
+  const backupDue = done.length > 0 && (settings.lastBackupAt === null || Date.now() - settings.lastBackupAt > BACKUP_DAYS * 86_400_000)
+  const tmLine = lifts.map((l) => `${exercises.get(l.exerciseId)?.name ?? '?'} ${formatKg(l.tm)}`).join(' · ')
+
   return (
     <Screen title={`Ciclo ${pos.cycle}`} subtitle={tmLine ? `TM ${tmLine}` : undefined}>
-      {backupDue && <BackupReminder last={settings.lastBackupAt} />}
       {pending.map((l) => (
         <TmProposal key={l.exerciseId} lift={l} exercise={exercises.get(l.exerciseId)} settings={settings} />
       ))}
@@ -129,54 +164,64 @@ export function Oggi({ onImport }: { onImport: () => void }) {
         </>
       )}
 
-      {open && (
-        <DaySheet
-          day={open.day}
-          slot={open.slot}
-          session={(bySlot.get(slotKey(open.slot.pos)) ?? []).find((s) => s.dayId === open.day.id)}
-          ctx={ctx}
-          onClose={() => setOpen(null)}
-        />
-      )}
+      {backupDue && <BackupReminder last={settings.lastBackupAt} />}
     </Screen>
   )
 }
 
-/** Riga di un giorno: pallino come nelle Note, nome, pesi principali della settimana. */
+/** Pallino come nelle Note: vuoto, oppure giallo con la spunta. */
+function Check({ done, highlight = false, size = 26 }: { done: boolean; highlight?: boolean; size?: number }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full ${
+        done ? 'bg-accent text-black' : `border-[1.5px] ${highlight ? 'border-accent' : 'border-label-3'}`
+      }`}
+      style={{ width: size, height: size }}
+    >
+      {done && (
+        <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2.5 7.5 5.5 10.5 11.5 3.5" />
+        </svg>
+      )}
+    </span>
+  )
+}
+
 function DayRow({
   day,
   summary,
-  done,
+  entry,
   next,
   dim,
-  onClick,
+  onOpen,
+  onToggle,
 }: {
   day: Day
   summary: string
-  done: boolean
+  entry: Session | undefined
   next: boolean
   dim: boolean
-  onClick: () => void
+  onOpen: () => void
+  onToggle: () => void
 }) {
+  const done = entry?.status === 'done'
+  const work = entry ? entry.exercises.flatMap((e) => e.sets.filter((s) => s.type !== 'warmup')) : []
+  const progress = entry && !done && work.some((s) => s.done) ? `in corso · ${work.filter((s) => s.done).length}/${work.length} serie` : null
   return (
-    <button type="button" onClick={onClick} className="block w-full pl-4 text-left active:bg-card-2 [&:first-child>div]:border-t-0">
-      <div className="flex min-h-14 items-center gap-3 border-t-[0.5px] border-sep py-2.5 pr-4">
-        <span
-          aria-label={done ? 'fatto' : 'da fare'}
-          className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[15px] font-bold ${
-            done ? 'bg-done text-black' : `border-2 ${next ? 'border-accent' : 'border-label-3'}`
-          }`}
-        >
-          {done ? '✓' : ''}
+    <div className="flex items-stretch pl-1 [&:first-child>div]:border-t-0">
+      <button type="button" onClick={onToggle} aria-label={done ? `Togli la spunta a ${day.name}` : `Spunta ${day.name}`} className="flex w-12 shrink-0 items-center justify-center">
+        <Check done={done} highlight={next} />
+      </button>
+      <button type="button" onClick={onOpen} className="flex min-h-14 min-w-0 flex-1 items-center gap-2 border-t-[0.5px] border-sep py-2.5 pr-4 text-left active:opacity-60">
+        <span className={`min-w-0 flex-1 ${dim ? 'opacity-55' : ''}`}>
+          <span className={`block text-[17px] ${done ? 'text-label-2' : ''}`}>{day.name}</span>
+          {(progress || summary) && <span className={`block truncate text-[13px] ${progress ? 'text-accent' : 'text-label-2'}`}>{progress ?? summary}</span>}
         </span>
-        <span className={`min-w-0 flex-1 ${dim ? 'opacity-60' : ''}`}>
-          <span className={`block text-[17px] ${done ? 'text-label-2' : 'font-semibold'}`}>{day.name}</span>
-          {summary && <span className="block truncate text-[13px] text-label-2">{summary}</span>}
+        <span className="text-label-3">
+          <Chevron direction="right" small />
         </span>
-        {next && <span className="shrink-0 text-[13px] font-semibold text-accent">prossimo</span>}
-        <span className="text-label-3">›</span>
-      </div>
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -195,177 +240,293 @@ function mainSummary(day: Day, kind: WeekKind, ctx: BuildContext): string {
     .join(' · ')
 }
 
-function DaySheet({
+/** La pagina di un giorno: come una nota, una riga per serie con le reps da scrivere. */
+function DayPage({
   day,
   slot,
-  session,
+  entry,
+  hint,
   ctx,
-  onClose,
+  backLabel,
+  onBack,
 }: {
   day: Day
   slot: WeekSlot
-  session: Session | undefined
+  entry: Session | undefined
+  hint?: string
   ctx: BuildContext
-  onClose: () => void
+  backLabel: string
+  onBack: () => void
 }) {
-  const plan = session?.exercises ?? planDay(day, ctx, slot.pos)
-  const plus = plusSets(plan)
-  const [asking, setAsking] = useState(false)
-  const [reps, setReps] = useState<Map<string, number>>(() => new Map(plus.map((p) => [p.exerciseId, p.target])))
+  const done = entry?.status === 'done'
+  const editable = slot.state === 'current' && !done
+  const plan = entry?.exercises ?? planDay(day, ctx, slot.pos)
+  const [message, setMessage] = useState<string | null>(hint ?? null)
   const [plates, setPlates] = useState<number | null | undefined>(undefined)
-  const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const name = (id: string) => ctx.exercises.get(id)?.name ?? '?'
   // In palestra con il giorno aperto lo schermo resta acceso.
-  useWakeLock(true)
+  useWakeLock(editable)
 
-  const finish = async (plusReps: Map<string, number>) => {
+  // Il giorno in corso si crea solo alla prima modifica (aprirlo per guardare non lo "inizia").
+  const draftId = useRef<Promise<string> | null>(entry ? Promise.resolve(entry.id) : null)
+  useEffect(() => {
+    if (entry) draftId.current = Promise.resolve(entry.id)
+  }, [entry])
+  const edit = async (fn: (s: Session) => void) => {
+    if (!editable) return
+    draftId.current ??= ensureDraft(day)
+    await editSession(await draftId.current, fn)
+  }
+
+  const finish = async () => {
     setBusy(true)
-    await markDayDone(day, plusReps)
-    onClose()
+    const result = await markDayDone(day)
+    setBusy(false)
+    if (result === 'missing-plus') setMessage('Scrivi quante reps hai fatto nel set «+»: servono per il nuovo TM.')
+    else onBack()
   }
 
   return (
-    <Sheet open title={day.name} onClose={onClose} doneLabel="Chiudi">
-      <p className="-mt-1 mb-3 text-[15px] text-label-2">{positionLabel(ctx.settings.cycleConfig, slot.pos)}</p>
-
-      {!asking ? (
-        <div className="flex flex-col gap-3">
-          {plan.map((ex) => (
-            <PlanItem key={ex.key} ex={ex} exercise={ctx.exercises.get(ex.exerciseId)} doneSession={Boolean(session)} onPlates={setPlates} />
-          ))}
-
-          <div className="mt-2">
-            {session ? (
-              <>
-                <p className="mb-3 text-center text-[15px] text-done">
-                  ✓ Fatto {new Date(session.startedAt).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}
-                </p>
-                <Button
-                  kind="secondary"
-                  className="w-full"
-                  onClick={async () => {
-                    if (await unmarkDay(session)) onClose()
-                    else setMessage('Non si può più togliere la spunta: nella settimana dopo hai già fatto un allenamento.')
-                  }}
+    <Screen title={day.name} subtitle={positionLabel(ctx.settings.cycleConfig, slot.pos)} back={{ label: backLabel, onClick: onBack }}>
+      {plan.map((ex, exIdx) => {
+        const exercise = ctx.exercises.get(ex.exerciseId)
+        const warmup = ex.sets.filter((s) => s.type === 'warmup')
+        let n = 0
+        return (
+          <div key={ex.key}>
+            <div className="flex items-end justify-between gap-3 px-5 pb-1.5">
+              <div className="min-w-0">
+                <h2 className="text-[20px] leading-tight font-bold">
+                  {ex.superset && <span className="mr-1.5 text-[15px] text-accent">{ex.superset}</span>}
+                  {exercise?.name ?? '?'}
+                </h2>
+                {exercise?.notes && <p className="text-[13px] text-label-2">{exercise.notes}</p>}
+                {warmup.length > 0 && (
+                  <p className="text-[13px] text-label-2">Riscaldamento {warmup.map((s) => `${formatKg(s.weight ?? 0)}×${s.targetReps}`).join(' · ')}</p>
+                )}
+              </div>
+              {exercise?.barbell && (
+                <button
+                  type="button"
+                  onClick={() => setPlates(ex.sets.find((s) => s.type !== 'warmup' && !s.done)?.weight ?? ex.sets[ex.sets.length - 1]?.weight ?? null)}
+                  className="min-h-11 shrink-0 px-1 text-[15px] text-accent active:opacity-50"
                 >
-                  Togli la spunta
-                </Button>
-              </>
-            ) : slot.state === 'current' ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => (plus.length ? setAsking(true) : void finish(new Map()))}
-                className="min-h-14 w-full rounded-2xl bg-done text-[19px] font-bold text-black active:opacity-70"
-              >
-                Fatto ✓
-              </button>
-            ) : (
-              <p className="text-center text-[15px] text-label-2">
-                {slot.state === 'future'
-                  ? 'Questa settimana non è ancora arrivata: qui vedi cosa ci sarà da fare.'
-                  : 'Settimana passata: questo giorno non è stato fatto.'}
-              </p>
-            )}
-            {message && <p className="mt-3 text-center text-[15px] text-danger">{message}</p>}
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-5">
-          <p className="text-[17px]">Quante reps hai fatto nel set «+»? Servono per il nuovo TM a fine ciclo.</p>
-          {plus.map((p) => (
-            <div key={p.exerciseId}>
-              <p className="mb-2 font-semibold">
-                {name(p.exerciseId)} · {formatKg(p.weight ?? 0)} kg × {p.target}+
-              </p>
-              <Stepper
-                value={reps.get(p.exerciseId) ?? p.target}
-                onChange={(v) => setReps((m) => new Map(m).set(p.exerciseId, v ?? 0))}
-                suffix="reps"
-                max={50}
-              />
+                  Dischi
+                </button>
+              )}
             </div>
-          ))}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void finish(reps)}
-            className="min-h-14 w-full rounded-2xl bg-done text-[19px] font-bold text-black active:opacity-70"
-          >
-            Salva ✓
-          </button>
-          <Button kind="plain" onClick={() => setAsking(false)}>
-            Indietro
+            <div className="mx-4 overflow-hidden rounded-[20px] bg-card">
+              {ex.sets.map((set, setIdx) => {
+                if (set.type === 'warmup') return null
+                const label = set.type === 'fsl' ? 'FSL' : String(++n)
+                const update = (fn: (s: SessionSet, all: SessionSet[]) => void) =>
+                  void edit((s) => {
+                    const sets = s.exercises[exIdx]?.sets
+                    if (sets?.[setIdx]) fn(sets[setIdx], sets)
+                  })
+                return (
+                  <SetLine
+                    key={setIdx}
+                    label={label}
+                    set={set}
+                    loadType={exercise?.loadType ?? 'normal'}
+                    editable={editable}
+                    weightEditable={ex.role === 'accessory'}
+                    bonus={ctx.settings.plusRepsBonus}
+                    onToggle={() =>
+                      update((s) => {
+                        s.done = !s.done
+                        s.reps = s.done ? (s.reps ?? s.targetReps) : null
+                      })
+                    }
+                    onReps={(v) =>
+                      update((s) => {
+                        s.reps = v
+                        s.done = v !== null
+                      })
+                    }
+                    onWeight={(v) =>
+                      update((s, all) => {
+                        // Il nuovo peso vale anche per le serie dopo, non ancora fatte, che avevano lo stesso peso.
+                        const old = s.weight
+                        s.weight = v
+                        for (const later of all.slice(setIdx + 1)) if (!later.done && later.weight === old) later.weight = v
+                      })
+                    }
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+
+      <div className="px-4">
+        <p className="mb-1.5 px-4 text-[13px] text-label-2 uppercase">Note</p>
+        <NoteField value={entry?.notes ?? ''} editable={slot.state === 'current'} onChange={(notes) => void edit((s) => void (s.notes = notes))} />
+      </div>
+
+      <div className="flex flex-col gap-3 px-4">
+        {message && <p className="text-center text-[15px] text-danger">{message}</p>}
+        {done ? (
+          <>
+            <p className="text-center text-[15px] text-label-2">
+              ✓ Fatto {new Date(entry!.endedAt ?? entry!.startedAt).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <Button
+              kind="secondary"
+              onClick={async () => {
+                if (await unmarkDay(entry!)) setMessage(null)
+                else setMessage('Non si può più togliere la spunta: nella settimana dopo hai già fatto un allenamento.')
+              }}
+            >
+              Togli la spunta
+            </Button>
+          </>
+        ) : editable ? (
+          <Button onClick={() => void finish()} disabled={busy}>
+            Fatto ✓
           </Button>
-        </div>
-      )}
+        ) : (
+          <p className="text-center text-[15px] text-label-2">
+            {slot.state === 'future' ? 'Questa settimana non è ancora arrivata: qui vedi cosa ci sarà da fare.' : 'Settimana passata: questo giorno non è stato fatto.'}
+          </p>
+        )}
+      </div>
       <PlateCalculator open={plates !== undefined} onClose={() => setPlates(undefined)} initial={plates ?? null} settings={ctx.settings} />
-    </Sheet>
+    </Screen>
   )
 }
 
-/** Un esercizio del giorno, scritto come nella nota. */
-function PlanItem({
-  ex,
-  exercise,
-  doneSession,
-  onPlates,
+/** Una serie come riga di una nota: pallino, peso × reps. Le reps (e il peso dei complementari) si scrivono lì. */
+function SetLine({
+  label,
+  set,
+  loadType,
+  editable,
+  weightEditable,
+  bonus,
+  onToggle,
+  onReps,
+  onWeight,
 }: {
-  ex: SessionExercise
-  exercise: Exercise | undefined
-  doneSession: boolean
-  onPlates: (w: number | null) => void
+  label: string
+  set: SessionSet
+  loadType: Exercise['loadType']
+  editable: boolean
+  weightEditable: boolean
+  bonus: number
+  onToggle: () => void
+  onReps: (v: number | null) => void
+  onWeight: (v: number | null) => void
 }) {
-  const warmup = ex.sets.filter((s) => s.type === 'warmup')
-  const work = ex.sets.filter((s) => s.type !== 'warmup' && s.type !== 'fsl')
-  const fsl = ex.sets.filter((s) => s.type === 'fsl')
-  const repsOf = (s: SessionExercise['sets'][number]) => (doneSession && s.type === 'plus' ? String(repsDone(s)) : targetText(s))
-
+  const est = set.type === 'plus' && set.reps !== null && set.weight ? e1rm(set.weight, set.reps + bonus) : 0
+  const prefix = loadType === 'assisted' ? 'assist. ' : loadType === 'weighted' ? '+' : ''
   return (
-    <div className="rounded-xl bg-card px-4 py-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[17px] font-semibold">
-            {ex.superset && <span className="mr-1 text-[13px] text-accent">{ex.superset}</span>}
-            {exercise?.name ?? '?'}
-          </p>
-          {exercise?.notes && <p className="text-[13px] text-label-2">{exercise.notes}</p>}
-        </div>
-        {exercise?.barbell && (
-          <button
-            type="button"
-            onClick={() => onPlates((work[work.length - 1] ?? ex.sets[0])?.weight ?? null)}
-            className="h-10 shrink-0 rounded-xl bg-card-2 px-3 text-[15px] font-semibold text-accent"
-          >
-            Dischi
-          </button>
-        )}
-      </div>
-
-      {ex.role === 'main531' ? (
-        <div className="mt-1.5 flex flex-col gap-0.5 tabular-nums">
-          {warmup.length > 0 && (
-            <p className="text-[13px] text-label-2">Riscaldamento: {warmup.map((s) => `${formatKg(s.weight ?? 0)}×${s.targetReps}`).join(' · ')}</p>
-          )}
-          <p className="text-[19px] font-semibold">{work.map((s) => `${formatKg(s.weight ?? 0)}×${repsOf(s)}`).join(' / ')}</p>
-          {fsl.length > 0 && (
-            <p className="text-[15px]">
-              FSL {formatKg(fsl[0].weight ?? 0)} {fsl.length}×{fsl[0].targetReps}
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mt-1 text-[17px] tabular-nums">
-          {ex.sets.length}×{ex.sets[0]?.targetReps ?? '?'} ·{' '}
-          {ex.sets[0]?.weight == null ? (
-            <span className="text-accent">peso da completare</span>
+    <div className="flex min-h-[52px] items-center gap-3 pl-3 [&+&]:border-t-[0.5px] [&+&]:border-sep">
+      <button type="button" disabled={!editable} onClick={onToggle} aria-label={set.done ? 'Segna come non fatta' : 'Segna come fatta'} className="flex size-11 shrink-0 items-center justify-center disabled:opacity-60">
+        <Check done={set.done} />
+      </button>
+      <span className="w-9 shrink-0 text-[15px] text-label-2">{label}</span>
+      <span className="flex min-w-0 flex-1 flex-col py-1.5">
+        <span className={`flex items-baseline text-[17px] tabular-nums ${set.done ? 'text-label-2' : ''}`}>
+          {weightEditable && editable ? (
+            <>
+              {prefix}
+              <NumInput value={set.weight} onChange={onWeight} decimal placeholder="—" autoWidth className="text-left" />
+              <span className="ml-0.5">kg</span>
+            </>
           ) : (
-            weightText(ex.sets[0].weight, exercise?.loadType)
+            <span>{weightText(set.weight, loadType)}</span>
           )}
-        </p>
+          <span className="mx-1.5 text-label-3">×</span>
+          <span className="text-label-2">{targetText(set)}</span>
+        </span>
+        {est > 0 && <span className="text-[12px] text-label-2">e1RM {formatKg(Math.round(est * 10) / 10)} kg</span>}
+      </span>
+      {editable ? (
+        <NumInput
+          value={set.reps}
+          onChange={onReps}
+          placeholder={set.type === 'plus' ? `${set.targetReps}+` : String(set.targetReps ?? '')}
+          className="mr-1 h-11 w-16 rounded-xl bg-card-2 text-center text-[20px] font-semibold"
+          ariaLabel="Reps fatte"
+        />
+      ) : (
+        <span className="mr-4 w-12 text-right text-[17px] font-semibold tabular-nums">{set.done ? repsDone(set) : ''}</span>
       )}
     </div>
+  )
+}
+
+/** Numero scritto come in una nota: niente riquadri, tastierino numerico, si salva mentre scrivi. */
+function NumInput({
+  value,
+  onChange,
+  placeholder,
+  decimal = false,
+  className = '',
+  ariaLabel,
+  autoWidth = false,
+}: {
+  value: number | null
+  onChange: (v: number | null) => void
+  placeholder?: string
+  decimal?: boolean
+  className?: string
+  ariaLabel?: string
+  /** Largo quanto il numero scritto, come testo in una nota. */
+  autoWidth?: boolean
+}) {
+  const [text, setText] = useState(value === null ? '' : formatKg(value))
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setText(value === null ? '' : formatKg(value))
+  }, [value])
+  return (
+    <input
+      inputMode={decimal ? 'decimal' : 'numeric'}
+      enterKeyHint="done"
+      aria-label={ariaLabel}
+      value={text}
+      placeholder={placeholder}
+      onFocus={(e) => {
+        focused.current = true
+        e.target.select()
+      }}
+      onBlur={() => {
+        focused.current = false
+        setText(value === null ? '' : formatKg(value))
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      onChange={(e) => {
+        const raw = e.target.value
+        setText(raw)
+        const n = parseFloat(raw.replace(',', '.'))
+        if (raw.trim() === '') onChange(null)
+        else if (Number.isFinite(n) && n >= 0) onChange(n)
+      }}
+      style={autoWidth ? { width: `${Math.max(text.length || (placeholder?.length ?? 1), 1) + 0.4}ch` } : undefined}
+      className={`bg-transparent tabular-nums outline-none placeholder:text-label-3 focus:ring-2 focus:ring-accent ${className}`}
+    />
+  )
+}
+
+function NoteField({ value, editable, onChange }: { value: string; editable: boolean; onChange: (v: string) => void }) {
+  const [text, setText] = useState(value)
+  useEffect(() => setText(value), [value])
+  return (
+    <textarea
+      value={text}
+      readOnly={!editable}
+      onChange={(e) => {
+        setText(e.target.value)
+        onChange(e.target.value)
+      }}
+      placeholder={editable ? 'Come è andata, sensazioni, dolori…' : ''}
+      rows={3}
+      className="w-full rounded-[20px] bg-card px-4 py-3 text-[17px] outline-none placeholder:text-label-3"
+    />
   )
 }
 
@@ -408,22 +569,18 @@ function BackupReminder({ last }: { last: number | null }) {
   const [busy, setBusy] = useState(false)
   const days = last ? Math.floor((Date.now() - last) / 86_400_000) : null
   return (
-    <div className="mx-4 rounded-[12px] border border-accent/40 bg-card p-4">
-      <p className="font-semibold">È ora di fare un backup</p>
-      <p className="mt-1 text-[15px] text-label-2">
-        {days === null ? 'Non hai ancora mai salvato una copia dei dati.' : `L'ultimo backup è di ${days} giorni fa.`} Salvalo in
-        File (iCloud Drive): se il telefono si rompe è l'unico modo per recuperare i dati.
-      </p>
-      <Button
-        className="mt-3 w-full"
+    <Group footer={`${days === null ? 'Non hai ancora salvato una copia dei dati.' : `Ultimo backup ${days} giorni fa.`} Salvala in File (iCloud Drive).`}>
+      <button
+        type="button"
         disabled={busy}
         onClick={() => {
           setBusy(true)
           void exportBackup().finally(() => setBusy(false))
         }}
+        className="block min-h-11 w-full px-4 text-left text-[17px] text-accent active:opacity-50"
       >
-        Fai il backup ora
-      </Button>
-    </div>
+        Fai il backup
+      </button>
+    </Group>
   )
 }

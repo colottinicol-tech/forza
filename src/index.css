@@ -14,7 +14,7 @@
   --glass: rgba(40, 40, 44, 0.55);
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-active: rgba(255, 255, 255, 0.13);
-  --accent: #ff9f0a;
+  --accent: #ffd60a;
   --done: #30d158;
   --danger: #ff453a;
 }
@@ -32,7 +32,7 @@
     --glass: rgba(255, 255, 255, 0.62);
     --glass-border: rgba(0, 0, 0, 0.07);
     --glass-active: rgba(0, 0, 0, 0.07);
-    --accent: #f08c00;
+    --accent: #c99400;
     --done: #34c759;
     --danger: #ff3b30;
   }

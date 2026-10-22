@@ -2,7 +2,7 @@
 import Dexie, { type Table } from 'dexie'
 import { DEFAULT_SETTINGS } from './defaults'
 import { nextPosition, slotKey } from './program531'
-import { afterDayDone, completeDay, lastKey, type BuildContext } from './session'
+import { afterDayDone, finalizeDraft, lastKey, missingPlusReps, newDraft, type BuildContext } from './session'
 import type { BodyWeight, Day, Exercise, Lift, Session, SessionSet, Settings, TmChange } from './types'
 
 class ForzaDB extends Dexie {
@@ -89,15 +89,50 @@ export async function setTm(exerciseId: string, tm: number, reason: string): Pro
   })
 }
 
-/** "Fatto": salva il giorno nella settimana attuale; se la settimana è completa passa alla successiva. */
-export async function markDayDone(day: Day, plusReps: Map<string, number>): Promise<void> {
+/** Il giorno della settimana attuale già iniziato o fatto (se c'è). */
+async function entryFor(dayId: string, slot: string): Promise<Session | undefined> {
+  return (await db.sessions.where('slot').equals(slot).toArray()).find((s) => s.dayId === dayId)
+}
+
+/** Crea (se serve) il giorno in corso nella settimana attuale e ne restituisce l'id. */
+export async function ensureDraft(day: Day): Promise<string> {
+  const ctx = await buildContext()
+  const pos = ctx.settings.position
+  return db.transaction('rw', db.sessions, async () => {
+    const existing = await entryFor(day.id, slotKey(pos))
+    if (existing) return existing.id
+    const draft = newDraft(day, ctx, pos)
+    await db.sessions.add(draft)
+    return draft.id
+  })
+}
+
+/** Modifica un giorno leggendo sempre l'ultima versione salvata (tocchi rapidi non si perdono). */
+export async function editSession(id: string, fn: (s: Session) => void): Promise<void> {
+  await db.transaction('rw', db.sessions, async () => {
+    const s = await db.sessions.get(id)
+    if (!s) return
+    fn(s)
+    await db.sessions.put(s)
+  })
+}
+
+/**
+ * "Fatto": chiude il giorno nella settimana attuale; se la settimana è completa passa alla successiva.
+ * Restituisce 'missing-plus' se manca ancora qualche reps del set "+".
+ */
+export async function markDayDone(day: Day): Promise<'ok' | 'missing-plus'> {
   const ctx = await buildContext()
   const days = await orderedDays()
   const pos = ctx.settings.position
   const inSlot = await db.sessions.where('slot').equals(slotKey(pos)).toArray()
-  if (inSlot.some((s) => s.dayId === day.id)) return
-  const session = completeDay(day, ctx, pos, plusReps)
-  const fx = afterDayDone(days, [...inSlot, session], ctx, pos)
+  const existing = inSlot.find((s) => s.dayId === day.id)
+  if (existing?.status === 'done') return 'ok'
+  const draft = existing ?? newDraft(day, ctx, pos)
+  if (missingPlusReps(draft).length) return 'missing-plus'
+  const session = finalizeDraft(draft)
+  const doneInSlot = inSlot.filter((s) => s.status === 'done' && s.id !== session.id)
+  const fx = afterDayDone(days, [...doneInSlot, session], ctx, pos)
 
   await db.transaction('rw', [db.sessions, db.lifts, db.settings], async () => {
     if (fx) {
@@ -113,7 +148,11 @@ export async function markDayDone(day: Day, plusReps: Map<string, number>): Prom
     }
     await db.sessions.put(session)
   })
+  return 'ok'
 }
+
+/** Il giorno torna "da finire", con le reps già scritte. */
+const reopen = (session: Session): Session => ({ ...session, status: 'active', endedAt: null, undo: null })
 
 /**
  * Toglie la spunta a un giorno. Si può solo nella settimana attuale, oppure per l'ultimo giorno che ha fatto
@@ -123,21 +162,24 @@ export async function unmarkDay(session: Session): Promise<boolean> {
   const settings = await getSettings()
   const pos = settings.position
   if (session.slot === slotKey(pos)) {
-    await db.sessions.delete(session.id)
+    await db.sessions.put(reopen(session))
     return true
   }
   const undo = session.undo
   if (!undo) return false
   const advancedTo = nextPosition(settings.cycleConfig, undo.position)
   if (slotKey(advancedTo) !== slotKey(pos)) return false
-  if ((await db.sessions.where('slot').equals(slotKey(pos)).count()) > 0) return false
+  const inNewWeek = await db.sessions.where('slot').equals(slotKey(pos)).toArray()
+  if (inNewWeek.some((s) => s.status === 'done')) return false
   await db.transaction('rw', [db.sessions, db.lifts, db.settings], async () => {
     for (const p of undo.pendingTm) {
       const lift = await db.lifts.get(p.exerciseId)
       if (lift) await db.lifts.put({ ...lift, pendingTm: p.pendingTm })
     }
     await db.settings.put({ ...settings, position: undo.position })
-    await db.sessions.delete(session.id)
+    // Giorni appena aperti nella nuova settimana: si buttano, la settimana torna indietro.
+    for (const s of inNewWeek) await db.sessions.delete(s.id)
+    await db.sessions.put(reopen(session))
   })
   return true
 }

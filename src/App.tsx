@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ImportSheet } from './components/ImportSheet'
 import { SafariNotice } from './components/SafariNotice'
 import { TAB_BAR_SPACE, TABS, TabBar, type TabId } from './components/TabBar'
+import { NAV_BAR_HEIGHT } from './components/ui'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useSettings } from './lib/hooks'
 import { Impostazioni } from './screens/Impostazioni'
@@ -61,7 +62,8 @@ export default function App() {
     <>
       <main
         style={{
-          paddingTop: 'env(safe-area-inset-top)',
+          // Sotto la barra del titolo fissa in alto (vedi Screen).
+          paddingTop: `calc(env(safe-area-inset-top) + ${NAV_BAR_HEIGHT}px)`,
           paddingBottom: TAB_BAR_SPACE,
           paddingLeft: 'env(safe-area-inset-left)',
           paddingRight: 'env(safe-area-inset-right)',

@@ -27,7 +27,7 @@ export function Button({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`min-h-12 rounded-xl px-4 text-[17px] active:opacity-70 disabled:opacity-40 ${styles} ${className}`}
+      className={`min-h-[50px] rounded-full px-5 text-[17px] active:opacity-70 disabled:opacity-40 ${styles} ${className}`}
     >
       {children}
     </button>
@@ -172,10 +172,11 @@ export function Sheet({
       <div
         role="dialog"
         aria-label={title}
-        className="sheet-panel relative flex max-h-[92dvh] flex-col rounded-t-2xl bg-bg"
+        className="sheet-panel relative flex max-h-[92dvh] flex-col rounded-t-[32px] bg-bg"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <div className="mx-auto mt-2 h-[5px] w-9 rounded-full bg-label-3" aria-hidden="true" />
+        <div className="flex items-center justify-between gap-2 px-4 pt-2 pb-2">
           <h2 className="truncate text-[17px] font-semibold">{title}</h2>
           <button type="button" onClick={onClose} className="min-h-11 shrink-0 px-2 text-[17px] font-semibold text-accent">
             {doneLabel}

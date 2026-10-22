@@ -17,6 +17,14 @@
     un test). Le posizioni dentro i singoli esercizi ora sono un errore.
 - 47 test automatici sulla logica (`npm test`).
 
+## Versione 0.4.0 (stesso giorno)
+- Pagina del giorno a schermo intero come una nota: una riga per serie con pallino, peso × reps previste e il riquadro
+  dove si scrivono le reps fatte (anche il set «+», con e1RM subito). Il peso dei complementari si scrive sulla riga.
+  Il giorno in corso è salvato (status 'active') e la home mostra «in corso · 3/12 serie».
+- Home: il pallino del giorno si tocca per spuntare/togliere la spunta, il nome apre la pagina.
+- Aspetto iOS: barra del titolo con titolo grande che si rimpicciolisce, «‹ Ciclo 1» per tornare indietro, giallo delle
+  Note come colore principale, schede arrotondate, pulsanti a capsula, pannelli con la maniglia.
+
 ## In sospeso
 - **Il programma di Nicolò**: ora ha 4 giorni (Upper A, Lower A, Upper B, Lower B). Servono i loro esercizi per rifare
   `privato/programma.json` nel nuovo formato. La bozza Gmail «Forza – programma da importare» è nel formato VECCHIO:

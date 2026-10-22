@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, defaultExercise, defaultLift } from './defaults'
 import { slotKey } from './program531'
 import { computeBests, sessionRecords, setRecord } from './records'
-import { afterDayDone, completeDay, planDay, plusSets, type BuildContext } from './session'
+import { afterDayDone, completeDay, finalizeDraft, missingPlusReps, newDraft, planDay, plusSets, type BuildContext } from './session'
 import type { Day, Lift, Position, Session, SessionSet } from './types'
 
 function ctxWith(lifts: Lift[], over: Partial<BuildContext> = {}, deloadEvery = 2): BuildContext {
@@ -65,6 +65,23 @@ describe('Fatto e avanzamento della settimana', () => {
     expect(s.status).toBe('done')
     expect(s.exercises[0].sets.every((x) => x.done)).toBe(true)
     expect(s.exercises[0].sets.find((x) => x.type === 'plus')?.reps).toBe(9)
+  })
+
+  it('giorno in corso: reps scritte serie per serie, il resto vale come pianificato', () => {
+    const ctx = ctxWith(lifts)
+    const draft = newDraft(dayA, ctx, p(1, 0))
+    expect(draft.status).toBe('active')
+    expect(missingPlusReps(draft)).toEqual(['a'])
+    const acc = draft.exercises[1].sets
+    acc[0].reps = 12
+    acc[1].reps = 12
+    acc[2].reps = 10
+    draft.exercises[0].sets.find((x) => x.type === 'plus')!.reps = 8
+    expect(missingPlusReps(draft)).toEqual([])
+    const final = finalizeDraft(draft)
+    expect(final.status).toBe('done')
+    expect(final.exercises[1].sets.map((x) => x.reps)).toEqual([12, 12, 10, 10])
+    expect(final.exercises[1].sets.every((x) => x.done)).toBe(true)
   })
 
   it('la settimana avanza solo quando tutti i giorni sono fatti', () => {

@@ -56,17 +56,9 @@ export function plusSets(plan: SessionExercise[]): { exerciseId: string; weight:
   return out
 }
 
-/** Il giorno fatto: tutti i set come pianificati, il set "+" con le reps indicate. */
-export function completeDay(day: Day, ctx: BuildContext, pos: Position, plusReps: Map<string, number>, now = Date.now()): Session {
+/** Il giorno appena aperto e ancora da finire: le serie si spuntano e le reps si scrivono man mano. */
+export function newDraft(day: Day, ctx: BuildContext, pos: Position, now = Date.now()): Session {
   const kind = currentWeek(ctx.settings.cycleConfig, pos)
-  const exercises = planDay(day, ctx, pos).map((ex) => ({
-    ...ex,
-    sets: ex.sets.map((s) => ({
-      ...s,
-      done: true,
-      reps: s.type === 'plus' && plusReps.has(ex.exerciseId) ? plusReps.get(ex.exerciseId)! : s.targetReps,
-    })),
-  }))
   return {
     id: newId(),
     dayId: day.id,
@@ -75,12 +67,41 @@ export function completeDay(day: Day, ctx: BuildContext, pos: Position, plusReps
     cycle: pos.cycle,
     week: kind,
     startedAt: now,
-    endedAt: now,
-    status: 'done',
+    endedAt: null,
+    status: 'active',
     notes: '',
     deload: isDeloadWeek(kind),
-    exercises,
+    exercises: planDay(day, ctx, pos),
   }
+}
+
+/** Esercizi il cui set "+" non ha ancora le reps scritte (servono per il nuovo TM). */
+export function missingPlusReps(session: Session): string[] {
+  return session.exercises
+    .filter((ex) => ex.role === 'main531' && ex.sets.some((s) => s.type === 'plus' && s.reps === null))
+    .map((ex) => ex.exerciseId)
+}
+
+/** "Fatto": le serie senza reps scritte valgono come pianificate. */
+export function finalizeDraft(draft: Session, now = Date.now()): Session {
+  return {
+    ...draft,
+    status: 'done',
+    endedAt: now,
+    exercises: draft.exercises.map((ex) => ({
+      ...ex,
+      sets: ex.sets.map((x) => ({ ...x, done: true, reps: x.reps ?? x.targetReps })),
+    })),
+  }
+}
+
+/** Scorciatoia: il giorno fatto tutto come pianificato, con le reps dei set "+" indicate. */
+export function completeDay(day: Day, ctx: BuildContext, pos: Position, plusReps: Map<string, number>, now = Date.now()): Session {
+  const draft = newDraft(day, ctx, pos, now)
+  for (const ex of draft.exercises) {
+    for (const x of ex.sets) if (x.type === 'plus' && plusReps.has(ex.exerciseId)) x.reps = plusReps.get(ex.exerciseId)!
+  }
+  return finalizeDraft(draft, now)
 }
 
 export interface WeekEffects {
