@@ -25,3 +25,6 @@ dist-ssr
 
 # Impostazioni locali di Claude Code
 .claude/
+
+# Dati personali (programma, backup): restano solo su questo PC, mai su GitHub
+privato/
