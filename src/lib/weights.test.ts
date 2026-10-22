@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { e1rm, maxRepsAt, platesPerSide, roundWeight } from './weights'
+import { e1rm, maxRepsAt, roundWeight } from './weights'
 
 describe('roundWeight', () => {
   it('arrotonda al 2,5 più vicino', () => {
@@ -29,25 +29,5 @@ describe('e1rm', () => {
   })
   it('la formula inversa torna alle reps', () => {
     expect(maxRepsAt(e1rm(60, 10), 60)).toBeCloseTo(10, 5)
-  })
-})
-
-describe('platesPerSide', () => {
-  const stock = [
-    { kg: 20, pairs: 2 },
-    { kg: 10, pairs: 1 },
-    { kg: 5, pairs: 1 },
-    { kg: 2.5, pairs: 1 },
-    { kg: 1.25, pairs: 1 },
-  ]
-  it('calcola i dischi per lato', () => {
-    expect(platesPerSide(100, 20, stock)).toEqual({ perSide: [20, 20], missing: 0 })
-    expect(platesPerSide(77.5, 20, stock)).toEqual({ perSide: [20, 5, 2.5, 1.25], missing: 0 })
-  })
-  it('rispetta i dischi disponibili e segnala quello che manca', () => {
-    expect(platesPerSide(140, 20, stock)).toEqual({ perSide: [20, 20, 10, 5, 2.5, 1.25], missing: 1.25 })
-  })
-  it('solo bilanciere', () => {
-    expect(platesPerSide(20, 20, stock)).toEqual({ perSide: [], missing: 0 })
   })
 })

@@ -25,6 +25,11 @@
 - Aspetto iOS: barra del titolo con titolo grande che si rimpicciolisce, «‹ Ciclo 1» per tornare indietro, giallo delle
   Note come colore principale, schede arrotondate, pulsanti a capsula, pannelli con la maniglia.
 
+## Versione 0.4.1
+- Riga della serie: «○ 1  65 kg × 3» con le reps al posto del target, opache finché non confermi (pallino = target,
+  tocchi il numero per scriverne un altro). Tolta la colonna a destra.
+- Tolti del tutto i dischi (calcolatore, primo avvio, impostazioni): «keep it simple».
+
 ## In sospeso
 - **Il programma di Nicolò**: ora ha 4 giorni (Upper A, Lower A, Upper B, Lower B). Servono i loro esercizi per rifare
   `privato/programma.json` nel nuovo formato. La bozza Gmail «Forza – programma da importare» è nel formato VECCHIO:

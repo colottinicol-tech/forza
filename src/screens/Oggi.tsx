@@ -2,7 +2,6 @@
 // Tocchi il pallino per spuntare il giorno, oppure il nome per aprirlo e scrivere le reps serie per serie.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Stepper } from '../components/controls'
-import { PlateCalculator } from '../components/PlateCalculator'
 import { Chevron, EmptyState, Group, Screen } from '../components/ui'
 import { exportBackup } from '../lib/dataio'
 import { editSession, ensureDraft, lastSetsByExercise, markDayDone, setTm, unmarkDay } from '../lib/db'
@@ -262,7 +261,6 @@ function DayPage({
   const editable = slot.state === 'current' && !done
   const plan = entry?.exercises ?? planDay(day, ctx, slot.pos)
   const [message, setMessage] = useState<string | null>(hint ?? null)
-  const [plates, setPlates] = useState<number | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   // In palestra con il giorno aperto lo schermo resta acceso.
   useWakeLock(editable)
@@ -305,15 +303,6 @@ function DayPage({
                   <p className="text-[13px] text-label-2">Riscaldamento {warmup.map((s) => `${formatKg(s.weight ?? 0)}×${s.targetReps}`).join(' · ')}</p>
                 )}
               </div>
-              {exercise?.barbell && (
-                <button
-                  type="button"
-                  onClick={() => setPlates(ex.sets.find((s) => s.type !== 'warmup' && !s.done)?.weight ?? ex.sets[ex.sets.length - 1]?.weight ?? null)}
-                  className="min-h-11 shrink-0 px-1 text-[15px] text-accent active:opacity-50"
-                >
-                  Dischi
-                </button>
-              )}
             </div>
             <div className="mx-4 overflow-hidden rounded-[20px] bg-card">
               {ex.sets.map((set, setIdx) => {
@@ -393,12 +382,14 @@ function DayPage({
           </p>
         )}
       </div>
-      <PlateCalculator open={plates !== undefined} onClose={() => setPlates(undefined)} initial={plates ?? null} settings={ctx.settings} />
     </Screen>
   )
 }
 
-/** Una serie come riga di una nota: pallino, peso × reps. Le reps (e il peso dei complementari) si scrivono lì. */
+/**
+ * Una serie come riga di una nota: «○  1   65 kg × 3». Il 3 è opaco (il target) finché non confermi:
+ * tocchi il pallino e vale il target, tocchi il numero e ne scrivi un altro.
+ */
 function SetLine({
   label,
   set,
@@ -423,38 +414,44 @@ function SetLine({
   const est = set.type === 'plus' && set.reps !== null && set.weight ? e1rm(set.weight, set.reps + bonus) : 0
   const prefix = loadType === 'assisted' ? 'assist. ' : loadType === 'weighted' ? '+' : ''
   return (
-    <div className="flex min-h-[52px] items-center gap-3 pl-3 [&+&]:border-t-[0.5px] [&+&]:border-sep">
-      <button type="button" disabled={!editable} onClick={onToggle} aria-label={set.done ? 'Segna come non fatta' : 'Segna come fatta'} className="flex size-11 shrink-0 items-center justify-center disabled:opacity-60">
+    <div className="flex min-h-[52px] items-center gap-2 pl-3 select-none [&+&]:border-t-[0.5px] [&+&]:border-sep">
+      <button
+        type="button"
+        disabled={!editable}
+        onClick={onToggle}
+        aria-label={set.done ? 'Segna come non fatta' : 'Segna come fatta'}
+        className="flex size-11 shrink-0 items-center justify-center disabled:opacity-60"
+      >
         <Check done={set.done} />
       </button>
       <span className="w-9 shrink-0 text-[15px] text-label-2">{label}</span>
       <span className="flex min-w-0 flex-1 flex-col py-1.5">
-        <span className={`flex items-baseline text-[17px] tabular-nums ${set.done ? 'text-label-2' : ''}`}>
+        <span className="flex items-baseline text-[19px] tabular-nums">
           {weightEditable && editable ? (
             <>
-              {prefix}
-              <NumInput value={set.weight} onChange={onWeight} decimal placeholder="—" autoWidth className="text-left" />
-              <span className="ml-0.5">kg</span>
+              {prefix && <span className="mr-1">{prefix.trim()}</span>}
+              <NumInput value={set.weight} onChange={onWeight} decimal placeholder="—" autoWidth className="rounded-md px-0.5 text-left" />
+              <span className="ml-1">kg</span>
             </>
           ) : (
             <span>{weightText(set.weight, loadType)}</span>
           )}
-          <span className="mx-1.5 text-label-3">×</span>
-          <span className="text-label-2">{targetText(set)}</span>
+          <span className="mx-2 text-label-3">×</span>
+          {editable ? (
+            <NumInput
+              value={set.reps}
+              onChange={onReps}
+              placeholder={targetText(set)}
+              autoWidth
+              ariaLabel="Reps fatte"
+              className="min-w-[2.2ch] rounded-md px-1 text-left font-semibold"
+            />
+          ) : (
+            <span className={set.done ? 'font-semibold' : 'text-label-3'}>{set.done ? repsDone(set) : targetText(set)}</span>
+          )}
         </span>
         {est > 0 && <span className="text-[12px] text-label-2">e1RM {formatKg(Math.round(est * 10) / 10)} kg</span>}
       </span>
-      {editable ? (
-        <NumInput
-          value={set.reps}
-          onChange={onReps}
-          placeholder={set.type === 'plus' ? `${set.targetReps}+` : String(set.targetReps ?? '')}
-          className="mr-1 h-11 w-16 rounded-xl bg-card-2 text-center text-[20px] font-semibold"
-          ariaLabel="Reps fatte"
-        />
-      ) : (
-        <span className="mr-4 w-12 text-right text-[17px] font-semibold tabular-nums">{set.done ? repsDone(set) : ''}</span>
-      )}
     </div>
   )
 }
@@ -506,7 +503,7 @@ function NumInput({
         if (raw.trim() === '') onChange(null)
         else if (Number.isFinite(n) && n >= 0) onChange(n)
       }}
-      style={autoWidth ? { width: `${Math.max(text.length || (placeholder?.length ?? 1), 1) + 0.4}ch` } : undefined}
+      style={autoWidth ? { width: `calc(${Math.max(text.length || (placeholder?.length ?? 1), 1) + 0.3}ch + 10px)` } : undefined}
       className={`bg-transparent tabular-nums outline-none placeholder:text-label-3 focus:ring-2 focus:ring-accent ${className}`}
     />
   )

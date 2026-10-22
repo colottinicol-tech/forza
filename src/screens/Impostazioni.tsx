@@ -1,7 +1,6 @@
 // Impostazioni: pesi e dischi, progressione, timer, backup e import, stato dell'app.
 import { useEffect, useState } from 'react'
 import { Button, Choice, Field, Sheet, Stepper } from '../components/controls'
-import { PlatesEditor } from '../components/PlatesEditor'
 import { Group, Row, Screen } from '../components/ui'
 import { exportBackup, readBackup, restoreBackup, type BackupSummary } from '../lib/dataio'
 import { updateSettings } from '../lib/db'
@@ -18,7 +17,7 @@ function Status({ ok, yes, no }: { ok: boolean | null; yes: string; no: string }
   return <span className={ok ? 'text-done' : 'text-label-2'}>{ok ? yes : no}</span>
 }
 
-type Panel = 'weights' | 'plates' | 'warmup' | 'progression' | null
+type Panel = 'weights' | 'warmup' | 'progression' | null
 
 export function Impostazioni({ onImport }: { onImport: () => void }) {
   const settings = useSettings()
@@ -45,7 +44,6 @@ export function Impostazioni({ onImport }: { onImport: () => void }) {
     setRestoring(readBackup(await file.text()))
   }
 
-  const plateCount = settings.plates.filter((p) => p.pairs > 0).length
 
   return (
     <Screen title="Impostazioni">
@@ -63,8 +61,7 @@ export function Impostazioni({ onImport }: { onImport: () => void }) {
       </Group>
 
       <Group header="Allenamento">
-        <NavRow label="Arrotondamento e bilanciere" detail={`${formatKg(settings.roundingStep)} kg`} onClick={() => setPanel('weights')} />
-        <NavRow label="Dischi disponibili" detail={`${plateCount} tipi`} onClick={() => setPanel('plates')} />
+        <NavRow label="Arrotondamento dei pesi" detail={`${formatKg(settings.roundingStep)} kg`} onClick={() => setPanel('weights')} />
         <NavRow label="Riscaldamento dei principali" detail={settings.warmup.map((w) => `${Math.round(w.pct * 100)}%`).join(' / ')} onClick={() => setPanel('warmup')} />
         <NavRow label="Progressione e e1RM" detail={`+${formatKg(settings.upperIncrement)} / +${formatKg(settings.lowerIncrement)}`} onClick={() => setPanel('progression')} />
       </Group>
@@ -138,8 +135,7 @@ function NavRow({ label, detail, onClick }: { label: string; detail: string; onC
 function SettingsPanel({ panel, settings, onClose }: { panel: Panel; settings: Settings; onClose: () => void }) {
   const set = (p: Partial<Settings>) => void updateSettings(p)
   const titles: Record<Exclude<Panel, null>, string> = {
-    weights: 'Arrotondamento e bilanciere',
-    plates: 'Dischi disponibili',
+    weights: 'Arrotondamento dei pesi',
     warmup: 'Riscaldamento',
     progression: 'Progressione e e1RM',
   }
@@ -154,12 +150,8 @@ function SettingsPanel({ panel, settings, onClose }: { panel: Panel; settings: S
             <Field label="Come arrotondare">
               <Choice options={ROUNDING_MODES} value={settings.roundingMode} onChange={(v) => v && set({ roundingMode: v })} />
             </Field>
-            <Field label="Bilanciere">
-              <Stepper value={settings.barWeight} onChange={(v) => set({ barWeight: v ?? 20 })} step={2.5} decimal suffix="kg" />
-            </Field>
           </>
         )}
-        {panel === 'plates' && <PlatesEditor plates={settings.plates} onChange={(plates) => set({ plates })} />}
         {panel === 'warmup' && (
           <>
             <p className="text-[15px] text-label-2">

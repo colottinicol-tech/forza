@@ -1,7 +1,6 @@
 // Prima apertura: unità, arrotondamento dei pesi, bilanciere e dischi.
 import { useState } from 'react'
-import { Button, Choice, Field, Stepper } from '../components/controls'
-import { PlatesEditor } from '../components/PlatesEditor'
+import { Button, Choice, Field } from '../components/controls'
 import { updateSettings } from '../lib/db'
 import { DEFAULT_SETTINGS } from '../lib/defaults'
 import type { RoundingMode, Settings } from '../lib/types'
@@ -23,7 +22,7 @@ export function Onboarding() {
         <img src={`${import.meta.env.BASE_URL}apple-touch-icon-180x180.png`} alt="" className="size-16 rounded-2xl" />
         <h1 className="mt-4 text-[34px] leading-[41px] font-bold tracking-tight">Benvenuto in Forza</h1>
         <p className="mt-2 text-[17px] text-label-2">
-          Tre impostazioni e sei pronto. Potrai cambiarle quando vuoi in Impostazioni.
+          Una sola impostazione e sei pronto. Potrai cambiarle quando vuoi in Impostazioni.
         </p>
       </header>
 
@@ -39,14 +38,6 @@ export function Onboarding() {
             «Al più vicino»: 86,25 kg diventa 85 (a pari distanza si scende). I pesi calcolati dal TM useranno questa regola.
           </p>
         </div>
-      </Field>
-
-      <Field label="Bilanciere">
-        <Stepper value={s.barWeight} onChange={(v) => patch({ barWeight: v ?? 20 })} step={2.5} decimal suffix="kg" />
-      </Field>
-
-      <Field label="Dischi">
-        <PlatesEditor plates={s.plates} onChange={(plates) => patch({ plates })} />
       </Field>
 
       <Button onClick={() => void updateSettings({ ...s, onboarded: true })}>Inizia</Button>

@@ -1,5 +1,5 @@
-// Calcoli sui pesi: arrotondamento, e1RM, dischi da caricare.
-import type { PlateStock, RoundingMode } from './types'
+// Calcoli sui pesi: arrotondamento ed e1RM.
+import type { RoundingMode } from './types'
 
 const EPS = 1e-6
 
@@ -26,28 +26,4 @@ export function e1rm(weight: number, reps: number): number {
 export function maxRepsAt(e1rmValue: number, weight: number): number {
   if (!(weight > 0)) return 0
   return (e1rmValue / weight - 1) / 0.0333
-}
-
-export interface PlateLoad {
-  /** Dischi per lato, dal più pesante. */
-  perSide: number[]
-  /** Kg per lato che non si riescono a caricare con i dischi disponibili. */
-  missing: number
-}
-
-/** Dischi da mettere per lato per arrivare a `total` con il bilanciere `bar`. */
-export function platesPerSide(total: number, bar: number, stock: PlateStock[]): PlateLoad {
-  let left = (total - bar) / 2
-  const perSide: number[] = []
-  if (left <= EPS) return { perSide, missing: 0 }
-  const sorted = [...stock].filter((p) => p.kg > 0 && p.pairs > 0).sort((a, b) => b.kg - a.kg)
-  for (const plate of sorted) {
-    let used = 0
-    while (used < plate.pairs && left + EPS >= plate.kg) {
-      perSide.push(plate.kg)
-      left -= plate.kg
-      used++
-    }
-  }
-  return { perSide, missing: Math.max(0, Math.round(left * 1000) / 1000) }
 }
