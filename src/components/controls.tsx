@@ -1,5 +1,6 @@
 // Controlli touch: pulsanti, stepper, scelte a pillole, pannello dal basso (sheet).
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { formatKg } from '../lib/format'
 
 export function Button({
@@ -54,12 +55,22 @@ export function Stepper({
   label?: string
 }) {
   const [text, setText] = useState(value === null ? '' : formatKg(value))
-  useEffect(() => setText(value === null ? '' : formatKg(value)), [value])
+  // Ultimo valore inviato: tocchi rapidi su − / + si sommano anche prima che arrivi il valore salvato.
+  const latest = useRef(value)
+  useEffect(() => {
+    latest.current = value
+    setText(value === null ? '' : formatKg(value))
+  }, [value])
   const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v * 1000) / 1000))
+  const emit = (v: number | null) => {
+    latest.current = v
+    onChange(v)
+  }
+  const bump = (delta: number) => emit(clamp((latest.current ?? 0) + delta))
   const commit = (raw: string) => {
     const n = parseFloat(raw.replace(',', '.'))
-    if (raw.trim() === '') onChange(null)
-    else if (Number.isFinite(n)) onChange(clamp(n))
+    if (raw.trim() === '') emit(null)
+    else if (Number.isFinite(n)) emit(clamp(n))
     else setText(value === null ? '' : formatKg(value))
   }
   return (
@@ -68,7 +79,7 @@ export function Stepper({
       <button
         type="button"
         aria-label="Diminuisci"
-        onClick={() => onChange(clamp((value ?? 0) - step))}
+        onClick={() => bump(-step)}
         className="size-12 shrink-0 rounded-xl bg-card-2 text-[26px] leading-none active:opacity-70"
       >
         −
@@ -89,7 +100,7 @@ export function Stepper({
       <button
         type="button"
         aria-label="Aumenta"
-        onClick={() => onChange(clamp((value ?? 0) + step))}
+        onClick={() => bump(step)}
         className="size-12 shrink-0 rounded-xl bg-card-2 text-[26px] leading-none active:opacity-70"
       >
         +
@@ -154,7 +165,8 @@ export function Sheet({
     }
   }, [open])
   if (!open) return null
-  return (
+  // Portale su <body>: i pannelli aperti uno dentro l'altro restano a schermo pieno.
+  return createPortal(
     <div className="fixed inset-0 z-40 flex flex-col justify-end">
       <div className="sheet-backdrop absolute inset-0 bg-black/50" onClick={onClose} />
       <div
@@ -171,7 +183,8 @@ export function Sheet({
         </div>
         <div className="overflow-y-auto overscroll-contain px-4 pb-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

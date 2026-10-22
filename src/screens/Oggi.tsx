@@ -145,7 +145,9 @@ function PlannedLine({
     detail = `${positionLabel(lift)}${top ? ` · fino a ${formatKg(top.weight ?? 0)}×${top.targetReps}${top.type === 'plus' ? '+' : ''}` : ''}`
   } else {
     const todo = pe.sets == null || (pe.reps == null && pe.repMax == null)
-    detail = todo ? 'da completare' : `${pe.sets}×${pe.reps ?? pe.repMax}${pe.weight != null ? ` · ${formatKg(pe.weight)} kg` : ''}`
+    detail = todo
+      ? 'da completare'
+      : `${pe.sets}×${pe.reps ?? pe.repMax} · ${pe.weight != null ? `${formatKg(pe.weight)} kg` : 'peso da completare'}`
   }
   return (
     <li className="flex items-baseline justify-between gap-3 px-4 py-1.5">

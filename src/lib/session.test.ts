@@ -40,7 +40,7 @@ describe('creazione del workout', () => {
   })
   it("complementare: usa il peso dell'ultima volta", () => {
     const last: SessionSet = { type: 'normal', weight: 32.5, targetReps: 10, reps: 10, rpe: null, done: true }
-    const ctx = ctxWith(defaultLift('main', 100), { lastSets: new Map([['acc', [last]]]) })
+    const ctx = ctxWith(defaultLift('main', 100), { lastSets: new Map([['accessory:acc', [last]]]) })
     expect(buildSession(day, ctx).exercises[1].sets[0].weight).toBe(32.5)
   })
   it('microciclo di scarico: complementari a metà set', () => {

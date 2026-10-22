@@ -4,7 +4,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const HOUR = 60 * 60 * 1000
 
-export function UpdateBanner() {
+export function UpdateBanner({ hidden = false }: { hidden?: boolean }) {
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
@@ -22,7 +22,7 @@ export function UpdateBanner() {
     },
   })
 
-  if (!needRefresh) return null
+  if (!needRefresh || hidden) return null
 
   return (
     <div className="mx-4 mt-2 flex items-center gap-3 rounded-[10px] bg-card p-3 pl-4">

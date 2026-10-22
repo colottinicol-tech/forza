@@ -9,7 +9,7 @@ import { formatKg } from '../lib/format'
 import { useDays, useDoneSessions, useExercises, useLifts, useNow, useWakeLock } from '../lib/hooks'
 import { WEEK_LABEL } from '../lib/program531'
 import { computeBests, sessionRecords, setE1rm, setRecord, type RecordOptions } from '../lib/records'
-import { buildSessionExercise, repsDone, restAfterSet } from '../lib/session'
+import { buildSessionExercise, lastKey, repsDone, restAfterSet } from '../lib/session'
 import { startRest, stopRest, unlockAudio } from '../lib/timer'
 import type { Exercise, LoadType, Session, SessionExercise, SessionSet, Settings } from '../lib/types'
 
@@ -138,14 +138,16 @@ export function Workout({ session, settings }: { session: Session; settings: Set
                   ex={session.exercises[i]}
                   exercise={exercises.get(session.exercises[i].exerciseId)}
                   planText={planText(plan?.exercises.find((p) => p.exerciseId === session.exercises[i].exerciseId))}
-                  lastSets={lastSets.get(session.exercises[i].exerciseId)}
+                  lastSets={lastSets.get(lastKey(session.exercises[i].exerciseId, session.exercises[i].role))}
                   recordFor={(s) => setRecord(session.exercises[i].exerciseId, s, bests, recordOpts)}
                   e1rmFor={(s) => setE1rm(s, exercises.get(session.exercises[i].exerciseId)?.loadType ?? 'normal', recordOpts)}
                   onToggle={(setIdx) => void toggleSet(i, setIdx)}
                   onEdit={(setIdx) => setEditing({ ex: i, set: setIdx })}
-                  onPlusReps={(setIdx, reps) =>
+                  onPlusReps={(setIdx, delta) =>
                     void update((s) => {
-                      s.exercises[i].sets[setIdx].reps = Math.max(0, reps)
+                      // Variazione relativa sull'ultima versione salvata: i tocchi rapidi non si perdono.
+                      const set = s.exercises[i].sets[setIdx]
+                      set.reps = Math.max(0, (set.reps ?? set.targetReps ?? 0) + delta)
                     })
                   }
                   onMenu={() => setMenu(i)}
@@ -247,7 +249,7 @@ function ExerciseCard({
   e1rmFor: (s: SessionSet) => number
   onToggle: (setIdx: number) => void
   onEdit: (setIdx: number) => void
-  onPlusReps: (setIdx: number, reps: number) => void
+  onPlusReps: (setIdx: number, delta: number) => void
   onMenu: () => void
   onPlates: (w: number | null) => void
 }) {
@@ -356,7 +358,7 @@ function ExerciseCard({
                 </button>
               </div>
               {s.type === 'plus' && s.done && (
-                <PlusStepper set={s} e1rm={e1rmFor(s)} onChange={(r) => onPlusReps(si, r)} />
+                <PlusStepper set={s} e1rm={e1rmFor(s)} onChange={(d) => onPlusReps(si, d)} />
               )}
             </li>
           )
@@ -367,7 +369,7 @@ function ExerciseCard({
 }
 
 /** Set "+": reps in più rispetto al target, con e1RM subito. */
-function PlusStepper({ set, e1rm, onChange }: { set: SessionSet; e1rm: number; onChange: (reps: number) => void }) {
+function PlusStepper({ set, e1rm, onChange }: { set: SessionSet; e1rm: number; onChange: (delta: number) => void }) {
   const target = set.targetReps ?? 0
   const reps = set.reps ?? target
   const extra = reps - target
@@ -376,7 +378,7 @@ function PlusStepper({ set, e1rm, onChange }: { set: SessionSet; e1rm: number; o
       <button
         type="button"
         aria-label="Una rep in meno"
-        onClick={() => onChange(reps - 1)}
+        onClick={() => onChange(-1)}
         className="size-12 rounded-xl bg-card-2 text-[26px] leading-none"
       >
         −
@@ -390,7 +392,7 @@ function PlusStepper({ set, e1rm, onChange }: { set: SessionSet; e1rm: number; o
       <button
         type="button"
         aria-label="Una rep in più"
-        onClick={() => onChange(reps + 1)}
+        onClick={() => onChange(1)}
         className="size-12 rounded-xl bg-accent text-[26px] leading-none text-black"
       >
         +
@@ -428,7 +430,17 @@ function SetEditor({
         <Stepper
           label={weightLabel}
           value={set.weight}
-          onChange={(v) => change((s) => void (s.weight = v))}
+          onChange={(v) =>
+            void update((s) => {
+              // Il nuovo peso vale anche per i set successivi non ancora fatti che avevano lo stesso peso.
+              const sets = s.exercises[exIdx].sets
+              const old = sets[setIdx].weight
+              sets[setIdx].weight = v
+              for (const later of sets.slice(setIdx + 1)) {
+                if (!later.done && later.type === sets[setIdx].type && later.weight === old) later.weight = v
+              }
+            })
+          }
           step={exercise?.increment || step}
           decimal
           suffix="kg"

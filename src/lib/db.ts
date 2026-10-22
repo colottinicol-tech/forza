@@ -1,7 +1,7 @@
 // Database sul telefono (IndexedDB tramite Dexie) e operazioni che toccano più tabelle.
 import Dexie, { type Table } from 'dexie'
 import { DEFAULT_SETTINGS } from './defaults'
-import { finishEffects, type BuildContext } from './session'
+import { finishEffects, lastKey, type BuildContext } from './session'
 import type { BodyWeight, Day, Exercise, Lift, Session, SessionSet, Settings, TmChange } from './types'
 
 class ForzaDB extends Dexie {
@@ -51,13 +51,14 @@ export async function doneSessions(): Promise<Session[]> {
   return all.filter((s) => s.status === 'done')
 }
 
-/** Set dell'ultima sessione completata per ogni esercizio. */
+/** Set dell'ultima sessione completata per ogni esercizio e ruolo. */
 export function lastSetsByExercise(done: Session[], excludeId?: string): Map<string, SessionSet[]> {
   const map = new Map<string, SessionSet[]>()
   for (const s of done) {
     if (s.id === excludeId) continue
     for (const ex of s.exercises) {
-      if (!map.has(ex.exerciseId)) map.set(ex.exerciseId, ex.sets.filter((x) => x.type !== 'warmup'))
+      const key = lastKey(ex.exerciseId, ex.role)
+      if (!map.has(key)) map.set(key, ex.sets.filter((x) => x.type !== 'warmup'))
     }
   }
   return map

@@ -6,11 +6,14 @@ export interface BuildContext {
   exercises: Map<string, Exercise>
   lifts: Map<string, Lift>
   settings: Settings
-  /** Set di lavoro dell'ultima sessione completata, per esercizio. */
+  /** Set di lavoro dell'ultima sessione completata, per esercizio e ruolo (vedi lastKey). */
   lastSets: Map<string, SessionSet[]>
 }
 
 const WARMUP_REST = 60
+
+/** "Ultima volta" separata per ruolo: la panca 5/3/1 e la panca 4×8 di un altro giorno non si mescolano. */
+export const lastKey = (exerciseId: string, role: SessionExercise['role']) => `${role}:${exerciseId}`
 
 export const newId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -47,7 +50,7 @@ export function buildSessionExercise(pe: PlannedExercise, ctx: BuildContext, del
   // Complementare: peso dell'ultima volta se c'è, altrimenti quello pianificato.
   let count = pe.sets ?? 3
   if (deload) count = Math.max(1, Math.ceil(count / 2))
-  const last = ctx.lastSets.get(pe.exerciseId)?.find((s) => s.type !== 'warmup' && s.weight !== null)
+  const last = ctx.lastSets.get(lastKey(pe.exerciseId, 'accessory'))?.find((s) => s.type !== 'warmup' && s.weight !== null)
   const weight = last?.weight ?? pe.weight ?? null
   const reps = pe.reps ?? pe.repMax ?? null
   const sets: SessionSet[] = Array.from({ length: count }, () => ({

@@ -359,11 +359,22 @@ function extractJson(text: string): string {
   return start >= 0 && end > start ? body.slice(start, end + 1) : body
 }
 
+const SETTING_LABEL: Record<string, string> = {
+  roundingStep: 'arrotondamento',
+  roundingMode: 'modo di arrotondare',
+  plusRepsBonus: 'reps in più per l\'e1RM dei set «+»',
+  upperIncrement: 'aumento TM upper',
+  lowerIncrement: 'aumento TM lower',
+  restAccessory: 'recupero dei complementari',
+  barWeight: 'bilanciere',
+  warmup: 'riscaldamento',
+}
+
 function buildPreview(d: ImportData, existing: ExistingState): string[] {
   const out: string[] = []
   const name = (id: string) => d.exercises.find((e) => e.id === id)?.name ?? existing.exercises.get(id)?.name ?? id
   if (d.mode === 'replace') out.push('Il programma attuale (giorni ed esercizi principali) viene sostituito. Lo storico resta.')
-  const s = Object.keys(d.settings)
+  const s = Object.keys(d.settings).map((k) => SETTING_LABEL[k] ?? k)
   if (s.length) out.push(`Impostazioni aggiornate: ${s.join(', ')}.`)
   const added = d.exercises.filter((e) => !existing.exercises.has(e.id))
   const changed = d.exercises.filter((e) => existing.exercises.has(e.id))
@@ -385,7 +396,9 @@ function buildPreview(d: ImportData, existing: ExistingState): string[] {
   }
   if (d.days) {
     for (const day of d.days) {
-      const todo = day.exercises.filter((e) => e.role === 'accessory' && (e.sets == null || e.reps == null && e.repMax == null))
+      const todo = day.exercises.filter(
+        (e) => e.role === 'accessory' && (e.sets == null || e.weight == null || (e.reps == null && e.repMax == null)),
+      )
       out.push(
         `Giorno «${day.name}»: ${day.exercises.map((e) => name(e.exerciseId)).join(', ')}.` +
           (todo.length ? ` Da completare nell'app: ${todo.map((e) => name(e.exerciseId)).join(', ')}.` : ''),

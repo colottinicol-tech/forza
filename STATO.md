@@ -1,59 +1,38 @@
-# Stato del progetto Forza (aggiornato il 2026-10-22)
+# Stato del progetto Forza (aggiornato il 2026-10-22, sera)
 
 ## Completato
-- **Fase 1**, verificata sull'iPhone: PWA installabile, icona, schermo intero, offline, banner «Aggiorna», avviso Safari,
-  dati protetti. Correzione per la tab bar sollevata in iOS 26 (versione 0.1.1). Online su
-  https://colottinicol-tech.github.io/forza/ con pubblicazione automatica a ogni push.
-- **Fase 2, logica** in `src/lib/`, con 44 test che passano (`npm test`):
-  - `weights.ts`: arrotondamento (vicino / a pari distanza per difetto / per eccesso / sempre per difetto), e1RM, calcolatore dischi.
-  - `program531.ts`: settimane del ciclo (originale con scarico ogni N cicli, Forever Leader/Anchor + 7ª settimana),
-    set pianificati (riscaldamento, lavoro, FSL per settimana), ripeti / settimana extra / salta, proposta del nuovo TM
-    con regole a soglie.
-  - `session.ts`: creazione del workout dal giorno, recuperi per posizione del set (prima/dopo il set "+", FSL 2' o 2'30"),
-    superset, chiusura del workout (avanzamento dei principali e del giorno, microcicli).
-  - `records.ts`: record di e1RM (set "+" = reps + bonus) e di reps a parità di peso.
-  - `importSchema.ts`: formato JSON "forza-import" v1, validazione con errori in italiano, anteprima delle modifiche.
-  - `dataio.ts`: applicazione dell'import, backup (esporta / leggi / ripristina), condivisione con il menu di iOS.
-  - `db.ts` (Dexie), `hooks.ts`, `timer.ts` (timer basato su timestamp + suono), `defaults.ts`, `types.ts`.
-- **Fase 2, interfaccia** (compila, ma NON ancora provata nel browser):
-  - `components/controls.tsx`: pulsanti, Stepper, scelte a pillole, Sheet, conferma, interruttore.
-  - `ExerciseEditor`, `ExercisePicker`, `PlateCalculator`, `RestTimerBar`.
-  - `screens/Workout.tsx`: workout attivo completo (spunta, set "+" con e1RM, modifica set, RPE, ultima volta, record,
-    note, aggiungi/togli/sostituisci/sposta, superset, dischi, fine workout con riepilogo e RPE della sessione).
-  - `screens/Oggi.tsx`: prossimo giorno, avvio del workout, altro giorno, conferma del nuovo TM, promemoria backup.
-- Programma di Nicolò salvato in `privato/programma.md` (cartella esclusa da git). Pesi verificati con l'arrotondamento.
+- **Fase 1**, verificata sull'iPhone: PWA installabile, offline, banner «Aggiorna», avviso Safari, tab bar corretta
+  su iOS 26. Online su https://colottinicol-tech.github.io/forza/ con pubblicazione automatica a ogni push.
+- **Fase 2 (versione 0.2.0)**, provata nel browser a 390 px, in chiaro e in scuro:
+  - Primo avvio: unità, arrotondamento, bilanciere, dischi.
+  - Oggi: prossimo giorno in sequenza, avvio del workout, scelta di un altro giorno, conferma/modifica del nuovo TM,
+    promemoria del backup dopo 14 giorni.
+  - Workout attivo: spunta con un tocco, set «+» con reps in più ed e1RM, modifica peso/reps/RPE (il peso nuovo passa ai
+    set successivi), «ultima volta» separata per ruolo, record, note, aggiungi/togli/sostituisci/sposta, superset,
+    calcolatore dischi, timer di recupero in basso (basato su timestamp, −15/+15, suono), schermo sempre acceso,
+    riepilogo finale con RPE della sessione. Il workout sopravvive alla chiusura dell'app.
+  - Programma: principali (TM con storico, ripeti / extra / salta, originale o Forever, scarico ogni N cicli, FSL per
+    settimana, soglie del TM, recuperi), giorni (crea, rinomina, ordina, elimina, prossimo, esercizi pianificati),
+    esercizi (con coefficienti muscolari proposti).
+  - Storico: posizione nei cicli, calendario con ✓, elenco e dettaglio delle sessioni, eliminazione.
+  - Impostazioni: esporta/importa backup, «Importa da Claude», arrotondamento, dischi, riscaldamento, incrementi, bonus
+    reps dei set «+», recupero dei complementari, suono, stato dell'app.
+  - `PROGRAM_SCHEMA.md`: schema ed esempi (controllati da un test automatico).
+  - Il programma di Nicolò è in `privato/programma.json` (escluso da git) e supera il controllo dell'app.
+- 46 test automatici sulla logica (`npm test`).
 
-## Resta da fare (fase 2)
-1. **App.tsx**: mostrare `RestTimerBar` sopra la tab bar quando c'è un workout attivo (padding in fondo
-   `+ TIMER_BAR_HEIGHT`) e nascondere `UpdateBanner` durante il workout.
-2. **screens/Programma.tsx**, ancora il segnaposto della fase 1:
-   - esercizi principali con posizione e TM;
-   - pannello del principale: TM con storico, ripeti / extra / salta, template, scarico ogni N cicli, FSL per settimana,
-     regole del TM, recuperi;
-   - giorni (aggiungi, rinomina, ordina, elimina, imposta come prossimo, esercizi pianificati con set/reps/range/peso/
-     RPE max/recupero/superset/note);
-   - elenco esercizi con `ExerciseEditor`;
-   - aggiungi un esercizio principale.
-3. **screens/Storico.tsx**: posizione nei cicli per ogni principale, calendario con i giorni completati, elenco delle
-   sessioni e dettaglio (set, reps, RPE, note), eliminazione.
-4. **screens/Impostazioni.tsx**: arrotondamento, bilanciere, dischi, riscaldamento, incrementi upper/lower, bonus reps
-   set "+", recupero complementari, suono. Dati: esporta backup, importa backup, «Importa da Claude» (incolla / scegli
-   file → controlla → anteprima → applica).
-5. **Onboarding** alla prima apertura (`settings.onboarded`): unità kg, arrotondamento, bilanciere, dischi.
-6. **PROGRAM_SCHEMA.md** con lo schema e un esempio completo (dati finti), basato su `importSchema.ts`.
-7. Convertire `privato/programma.md` in `privato/programma.json`: panca e squat come lift, giorni A / B / Gambe, campi
-   [DA COMPLETARE] a null, squat con `awaitingTmReview: { s3PlusReps: 5 }`, `plusRepsBonus: 1`, `deloadEvery: 2`.
-8. Prova completa nel browser a 390 px (chiaro e scuro), versione 0.2.0, README, push e prova sull'iPhone.
+## Resta da fare
+- Prova di Nicolò sull'iPhone della versione 0.2.0 e import del suo programma (fine fase 2).
+- **Fase 3**: doppia progressione dei complementari (suggerimento di aumento, stallo dopo 3 settimane), mesociclo dei
+  complementari, volume per muscolo e intensità (dashboard), grafici, peso corporeo da Oggi.
+- **Fase 4**: «Esporta per Claude»; «Chiedi a Claude» solo se Nicolò lo vuole (API a pagamento).
 
-## Decisioni in sospeso (da chiedere a Nicolò)
-- **Mappa muscoli**: il testo incollato si interrompe a «Valori da usare come». Per ora si usano i valori della tabella
-  del progetto (`defaults.ts` → `suggestMuscles`).
-- **Storico del ciclo 1** (set già fatti di panca e squat): caricarlo nell'app? Non ha date, andrebbero stimate.
-- **Allineamento squat / panca**: lo decide lui più avanti con i comandi dell'app.
-- Scelte fatte da me, da confermare: recupero prima del set "+" = 3' (lui ha scritto 3-4'); complementari dimezzati
-  quando un principale è nella settimana di scarico; trazioni assistite con incremento 2,5.
+## Decisioni in sospeso
+- **Mappa muscoli**: il testo si interrompe a «Valori da usare come». Per ora valgono i coefficienti in `programma.json`.
+- **Storico del ciclo 1** (set già fatti): caricarlo? Non ha date.
+- Scelte da confermare: recupero prima del set «+» 3' (lui ha scritto 3-4'); complementari a metà set quando un
+  principale è in scarico; incremento delle trazioni assistite 2,5; prossimo giorno = Giorno A.
 
 ## Da dove ripartire
-Dal punto 1, poi il punto 2 (`screens/Programma.tsx`). Le API da usare sono già pronte in `src/lib/`
-(`repeatLastWeek`, `insertExtraWeek`, `skipWeek`, `setTm`, `positionLabel`, `ExerciseEditor`, `ExercisePicker`).
-Prima del push: `npx tsc -b`, `npm test`, `npm run build`.
+Dopo il suo ok sulla fase 2: fase 3, partendo dalla doppia progressione (`PlannedExercise.repMin/repMax/rpeMax` ci sono
+già) e dal volume per muscolo (`Exercise.muscles`, `countsForVolume`).
