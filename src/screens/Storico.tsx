@@ -3,12 +3,11 @@ import { useState } from 'react'
 import { Button, Sheet, useConfirm } from '../components/controls'
 import { EmptyState, Group, Row, Screen } from '../components/ui'
 import { db } from '../lib/db'
-import { formatKg } from '../lib/format'
-import { useDoneSessions, useExercises, useLifts } from '../lib/hooks'
+import { formatKg, targetText, weightText } from '../lib/format'
+import { useDoneSessions, useExercises, useLifts, useSettings } from '../lib/hooks'
 import { positionLabel, WEEK_LABEL } from '../lib/program531'
 import { repsDone } from '../lib/session'
 import type { Exercise, Session } from '../lib/types'
-import { targetText, weightText } from './Workout'
 
 const WEEKDAYS = ['L', 'M', 'M', 'G', 'V', 'S', 'D']
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
@@ -16,13 +15,14 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 export function Storico() {
   const sessions = useDoneSessions()
   const lifts = useLifts()
+  const settings = useSettings()
   const exercises = useExercises()
   const [month, setMonth] = useState(() => {
     const d = new Date()
     return new Date(d.getFullYear(), d.getMonth(), 1)
   })
   const [selected, setSelected] = useState<Session | null>(null)
-  if (!sessions) return null
+  if (!sessions || !settings) return null
 
   const doneDays = new Set(sessions.map((s) => dayKey(new Date(s.startedAt))))
   const inMonth = sessions.filter((s) => {
@@ -32,13 +32,12 @@ export function Storico() {
 
   return (
     <Screen title="Storico">
-      {lifts.length > 0 && (
-        <Group header="Posizione nei cicli">
-          {lifts.map((l) => (
-            <Row key={l.exerciseId} title={exercises.get(l.exerciseId)?.name ?? l.exerciseId} detail={positionLabel(l)} />
-          ))}
-        </Group>
-      )}
+      <Group header="Dove sei">
+        <Row title="Settimana attuale" detail={positionLabel(settings.cycleConfig, settings.position)} />
+        {lifts.map((l) => (
+          <Row key={l.exerciseId} title={`TM ${exercises.get(l.exerciseId)?.name ?? l.exerciseId}`} detail={`${formatKg(l.tm)} kg`} />
+        ))}
+      </Group>
 
       <Group>
         <Calendar month={month} setMonth={setMonth} doneDays={doneDays} />
@@ -171,7 +170,7 @@ function SessionDetail({ session, exercises, onClose }: { session: Session; exer
           kind="danger"
           onClick={() =>
             confirm.ask(
-              "Il workout sparisce dallo storico. La posizione nei cicli non torna indietro: se serve, correggila dalla scheda Programma.",
+              "L'allenamento sparisce dallo storico. La settimana attuale non cambia: se serve, correggila dalla scheda Programma.",
               'Elimina workout',
               () => {
                 void db.sessions.delete(session.id)

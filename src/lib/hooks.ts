@@ -1,6 +1,6 @@
 // Dati letti dal database che si aggiornano da soli quando cambiano.
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { db, getSettings } from './db'
 import { DEFAULT_SETTINGS } from './defaults'
 import type { Day, Exercise, Lift, Session, Settings } from './types'
@@ -22,30 +22,11 @@ export function useDays(): Day[] | undefined {
   return useLiveQuery(() => db.days.orderBy('order').toArray(), [])
 }
 
-export function useActiveSession(): Session | null | undefined {
-  return useLiveQuery(async () => (await db.sessions.where('status').equals('active').first()) ?? null, [])
-}
-
 export function useDoneSessions(): Session[] | undefined {
   return useLiveQuery(async () => {
     const all = await db.sessions.orderBy('startedAt').reverse().toArray()
     return all.filter((s) => s.status === 'done')
   }, [])
-}
-
-/** Ridisegna ogni `ms` millisecondi (per timer e durata, calcolati da Date.now()). */
-export function useNow(ms = 500): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), ms)
-    const onVisible = () => setNow(Date.now())
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      clearInterval(id)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [ms])
-  return now
 }
 
 /** Tiene lo schermo acceso finché `active` è vero (se il browser lo permette). */

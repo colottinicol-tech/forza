@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ImportSheet } from './components/ImportSheet'
-import { RestTimerBar, TIMER_BAR_HEIGHT } from './components/RestTimerBar'
 import { SafariNotice } from './components/SafariNotice'
-import { TABS, TabBar, type TabId } from './components/TabBar'
+import { TAB_BAR_SPACE, TABS, TabBar, type TabId } from './components/TabBar'
 import { UpdateBanner } from './components/UpdateBanner'
-import { useActiveSession, useSettings } from './lib/hooks'
+import { useSettings } from './lib/hooks'
 import { Impostazioni } from './screens/Impostazioni'
 import { Oggi } from './screens/Oggi'
 import { Onboarding } from './screens/Onboarding'
@@ -34,7 +33,6 @@ export default function App() {
   const [tab, setTab] = useState<TabId>(tabFromHash)
   const [importing, setImporting] = useState(false)
   const settings = useSettings()
-  const active = useActiveSession()
 
   useEffect(() => {
     const onHash = () => setTab(tabFromHash())
@@ -48,43 +46,38 @@ export default function App() {
     window.scrollTo(0, 0)
   }
 
-  // Durante un workout il banner "Aggiorna" resta nascosto: l'app non si ricarica mai a metà allenamento.
-  const inWorkout = Boolean(active)
-
   if (settings && !settings.onboarded) {
     return (
       <main style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <UpdateBanner hidden />
+        <UpdateBanner />
         <Onboarding />
       </main>
     )
   }
 
   const Current = SCREENS[tab]
-  const bottomBars = 50 + (inWorkout ? TIMER_BAR_HEIGHT : 0)
 
   return (
     <>
       <main
         style={{
           paddingTop: 'env(safe-area-inset-top)',
-          paddingBottom: `calc(${bottomBars}px + env(safe-area-inset-bottom) + 16px)`,
+          paddingBottom: TAB_BAR_SPACE,
           paddingLeft: 'env(safe-area-inset-left)',
           paddingRight: 'env(safe-area-inset-right)',
         }}
       >
-        <UpdateBanner hidden={inWorkout} />
+        <UpdateBanner />
         <SafariNotice />
         <Current openImport={() => setImporting(true)} />
       </main>
-      {active && settings && <RestTimerBar settings={settings} startedAt={active.startedAt} />}
       <TabBar active={tab} onSelect={select} />
       <ImportSheet
         open={importing}
         onClose={() => setImporting(false)}
         onApplied={() => {
           setImporting(false)
-          select('programma')
+          select('oggi')
         }}
       />
     </>

@@ -1,118 +1,90 @@
 // Test con dati finti.
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, defaultExercise, defaultLift } from './defaults'
+import { slotKey } from './program531'
 import { computeBests, sessionRecords, setRecord } from './records'
-import { buildSession, finishEffects, restAfterSet, type BuildContext } from './session'
-import type { Day, Lift, Session, SessionSet } from './types'
+import { afterDayDone, completeDay, planDay, plusSets, type BuildContext } from './session'
+import type { Day, Lift, Position, Session, SessionSet } from './types'
 
-function ctxWith(lift: Lift, over: Partial<BuildContext> = {}): BuildContext {
-  const main = { ...defaultExercise('main', 'Esercizio A'), barbell: true }
-  const acc = defaultExercise('acc', 'Esercizio B')
+function ctxWith(lifts: Lift[], over: Partial<BuildContext> = {}, deloadEvery = 2): BuildContext {
   return {
     exercises: new Map([
-      ['main', main],
-      ['acc', acc],
+      ['a', { ...defaultExercise('a', 'Esercizio A'), barbell: true, bodyPart: 'upper' as const }],
+      ['b', { ...defaultExercise('b', 'Esercizio B'), barbell: true, bodyPart: 'lower' as const }],
+      ['acc', defaultExercise('acc', 'Complementare')],
     ]),
-    lifts: new Map([['main', lift]]),
-    settings: { ...DEFAULT_SETTINGS },
+    lifts: new Map(lifts.map((l) => [l.exerciseId, l])),
+    settings: { ...DEFAULT_SETTINGS, cycleConfig: { ...DEFAULT_SETTINGS.cycleConfig, deloadEvery } },
     lastSets: new Map(),
     ...over,
   }
 }
 
-const day: Day = {
+const dayA: Day = {
   id: 'd1',
   name: 'Giorno 1',
   order: 0,
   exercises: [
-    { exerciseId: 'main', role: 'main531' },
+    { exerciseId: 'a', role: 'main531' },
     { exerciseId: 'acc', role: 'accessory', sets: 4, reps: 10, weight: 30 },
   ],
 }
+const dayB: Day = { id: 'd2', name: 'Giorno 2', order: 1, exercises: [{ exerciseId: 'b', role: 'main531' }] }
+const p = (cycle: number, weekIdx: number): Position => ({ cycle, weekIdx, extra: null })
 
-describe('creazione del workout', () => {
-  it('principale dal TM, complementare dal piano', () => {
-    const s = buildSession(day, ctxWith({ ...defaultLift('main', 100), deloadEvery: 2 }))
-    expect(s.deload).toBe(false)
-    expect(s.exercises[0].week).toBe('S1')
-    expect(s.exercises[1].sets).toHaveLength(4)
-    expect(s.exercises[1].sets[0].weight).toBe(30)
+describe('cosa fare in un giorno', () => {
+  it('principale dal TM della settimana, complementare dal piano', () => {
+    const plan = planDay(dayA, ctxWith([defaultLift('a', 100)]), p(1, 2))
+    expect(plan[0].week).toBe('S3')
+    expect(plan[0].sets.find((s) => s.type === 'plus')?.weight).toBe(95)
+    expect(plan[1].sets).toHaveLength(4)
+    expect(plan[1].sets[0].weight).toBe(30)
   })
-  it("complementare: usa il peso dell'ultima volta", () => {
+  it("complementare: peso dell'ultima volta", () => {
     const last: SessionSet = { type: 'normal', weight: 32.5, targetReps: 10, reps: 10, rpe: null, done: true }
-    const ctx = ctxWith(defaultLift('main', 100), { lastSets: new Map([['accessory:acc', [last]]]) })
-    expect(buildSession(day, ctx).exercises[1].sets[0].weight).toBe(32.5)
+    const ctx = ctxWith([defaultLift('a', 100)], { lastSets: new Map([['accessory:acc', [last]]]) })
+    expect(planDay(dayA, ctx, p(1, 0))[1].sets[0].weight).toBe(32.5)
   })
-  it('microciclo di scarico: complementari a metà set', () => {
-    const lift = { ...defaultLift('main', 100), position: { cycle: 1, weekIdx: 3, extra: null } }
-    const s = buildSession(day, ctxWith(lift))
-    expect(s.deload).toBe(true)
-    expect(s.exercises[1].sets).toHaveLength(2)
+  it('settimana di scarico: complementari a metà set', () => {
+    const plan = planDay(dayA, ctxWith([defaultLift('a', 100)]), p(2, 3))
+    expect(plan[0].week).toBe('DELOAD')
+    expect(plan[1].sets).toHaveLength(2)
   })
-})
-
-describe('recuperi', () => {
-  it('lavoro 2\', prima e dopo il set "+" 3\', FSL 2\' o 2\'30" se perdi reps', () => {
-    const lift = { ...defaultLift('main', 100), fsl: { S1: { sets: 2, reps: 5 } } }
-    const s = buildSession(day, ctxWith(lift))
-    const sets = s.exercises[0].sets // 3 riscaldamento, 3 lavoro, 2 FSL
-    expect(restAfterSet(s, 0, 0, lift)).toBe(60)
-    expect(restAfterSet(s, 0, 3, lift)).toBe(120)
-    expect(restAfterSet(s, 0, 4, lift)).toBe(180)
-    expect(restAfterSet(s, 0, 5, lift)).toBe(180)
-    sets[6].done = true
-    sets[6].reps = 5
-    expect(restAfterSet(s, 0, 6, lift)).toBe(120)
-    sets[6].reps = 4
-    expect(restAfterSet(s, 0, 6, lift)).toBe(150)
-    expect(restAfterSet(s, 1, 0, lift)).toBe(90)
-  })
-  it("superset: nessun timer finché manca l'altro esercizio", () => {
-    const lift = defaultLift('main', 100)
-    const d: Day = {
-      ...day,
-      exercises: [
-        { exerciseId: 'acc', role: 'accessory', sets: 2, reps: 10, superset: 'A' },
-        { exerciseId: 'main', role: 'accessory', sets: 2, reps: 10, superset: 'A' },
-      ],
-    }
-    const s = buildSession(d, ctxWith(lift))
-    expect(restAfterSet(s, 0, 0, lift)).toBe(0)
-    expect(restAfterSet(s, 1, 0, lift)).toBe(90)
+  it('il set "+" del giorno', () => {
+    expect(plusSets(planDay(dayA, ctxWith([defaultLift('a', 100)]), p(1, 0)))).toEqual([{ exerciseId: 'a', weight: 85, target: 5 }])
+    expect(plusSets(planDay(dayA, ctxWith([defaultLift('a', 100)]), p(2, 3)))).toEqual([])
   })
 })
 
-describe('chiusura del workout', () => {
-  const doneAll = (s: Session, plusReps: number) => {
-    for (const ex of s.exercises)
-      for (const set of ex.sets) {
-        set.done = true
-        if (set.type === 'plus') set.reps = plusReps
-      }
-    return s
-  }
-  it('avanza il principale e il giorno', () => {
-    const ctx = ctxWith(defaultLift('main', 100))
-    const s = doneAll(buildSession(day, ctx), 7)
-    const fx = finishEffects(s, ctx, ['d1', 'd2'])
-    expect(fx.lifts[0].position).toEqual({ cycle: 1, weekIdx: 1, extra: null })
-    expect(fx.lifts[0].pendingTm).toBeNull()
-    expect(fx.nextDayIdx).toBe(1)
-    expect(fx.microcycle).toBe(1)
+describe('Fatto e avanzamento della settimana', () => {
+  const lifts = [defaultLift('a', 100), defaultLift('b', 150)]
+
+  it('"Fatto" registra il giorno con le reps del set "+"', () => {
+    const s = completeDay(dayA, ctxWith(lifts), p(1, 0), new Map([['a', 9]]))
+    expect(s.slot).toBe(slotKey(p(1, 0)))
+    expect(s.status).toBe('done')
+    expect(s.exercises[0].sets.every((x) => x.done)).toBe(true)
+    expect(s.exercises[0].sets.find((x) => x.type === 'plus')?.reps).toBe(9)
   })
-  it("dopo la S3 propone il nuovo TM; l'ultimo giorno chiude il microciclo", () => {
-    const lift = { ...defaultLift('main', 100), deloadEvery: 2, position: { cycle: 1, weekIdx: 2, extra: null } }
-    const ctx = ctxWith(lift)
-    const s = doneAll(buildSession(day, ctx), 4)
-    const fx = finishEffects(s, ctx, ['d0', 'd1'])
-    expect(fx.lifts[0].position).toEqual({ cycle: 2, weekIdx: 0, extra: null })
-    expect(fx.lifts[0].pendingTm?.proposed).toBe(102.5)
-    expect(fx.nextDayIdx).toBe(0)
-    expect(fx.microcycle).toBe(2)
+
+  it('la settimana avanza solo quando tutti i giorni sono fatti', () => {
+    const ctx = ctxWith(lifts)
+    const s1 = completeDay(dayA, ctx, p(1, 0), new Map())
+    expect(afterDayDone([dayA, dayB], [s1], ctx, p(1, 0))).toBeNull()
+    const s2 = completeDay(dayB, ctx, p(1, 0), new Map())
+    expect(afterDayDone([dayA, dayB], [s1, s2], ctx, p(1, 0))).toEqual({ position: p(1, 1), pendingTm: [] })
   })
-  it('se il principale non è stato fatto non avanza', () => {
-    const ctx = ctxWith(defaultLift('main', 100))
-    expect(finishEffects(buildSession(day, ctx), ctx, ['d1']).lifts).toHaveLength(0)
+
+  it('finita la S3 propone il nuovo TM a tutti i principali', () => {
+    const ctx = ctxWith(lifts)
+    const s1 = completeDay(dayA, ctx, p(1, 2), new Map([['a', 3]]))
+    const s2 = completeDay(dayB, ctx, p(1, 2), new Map([['b', 0]]))
+    const fx = afterDayDone([dayA, dayB], [s1, s2], ctx, p(1, 2))
+    expect(fx?.position).toEqual(p(2, 0))
+    expect(fx?.pendingTm).toEqual([
+      { exerciseId: 'a', pendingTm: { proposed: 102.5, reason: expect.stringContaining('+2,5') } },
+      { exerciseId: 'b', pendingTm: { proposed: 150, reason: expect.stringContaining('meglio non aumentare') } },
+    ])
   })
 })
 
@@ -130,11 +102,13 @@ describe('record personali', () => {
     id: 's',
     dayId: null,
     dayName: '',
+    slot: '1:0:',
+    cycle: 1,
+    week: 'S1',
     startedAt: 0,
     endedAt: 0,
     status: 'done',
     notes: '',
-    microcycle: 1,
     deload: false,
     exercises: [{ key: 'k', exerciseId: 'e', role: 'accessory', notes: '', restSec: 90, sets }],
   })
@@ -147,7 +121,7 @@ describe('record personali', () => {
     const bests = computeBests([session([set(80, 8), set(100, 3)])], opts)
     expect(setRecord('e', set(100, 5), bests, opts)?.kind).toBe('e1rm')
     expect(setRecord('e', set(80, 8), bests, opts)).toBeNull()
-    expect(setRecord('e', set(60, 12), bests, opts)).toBeNull() // e1RM più basso e peso mai fatto
+    expect(setRecord('e', set(60, 12), bests, opts)).toBeNull()
   })
   it('record di reps a parità di peso', () => {
     const bests = computeBests([session([set(100, 5), set(60, 10)])], opts)

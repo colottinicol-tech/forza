@@ -1,4 +1,4 @@
-// Programma: esercizi principali 5/3/1 (TM, posizione nel ciclo, riallineamento), giorni, esercizi.
+// Programma: settimana attuale (ripeti / extra / salta), struttura dei cicli, TM dei principali, giorni, esercizi.
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Button, Choice, Field, Sheet, Stepper, TextInput, Toggle, useConfirm } from '../components/controls'
@@ -13,19 +13,46 @@ import {
   currentWeek,
   insertExtraWeek,
   positionLabel,
+  previousWeekLabel,
   repeatLastWeek,
   skipWeek,
   WEEK_LABEL,
   weeksOfCycle,
 } from '../lib/program531'
 import { newId } from '../lib/session'
-import type { Day, Exercise, Lift, PlannedExercise, Settings, WeekKind } from '../lib/types'
+import type { CycleConfig, Day, Exercise, Lift, PlannedExercise, Settings, WeekKind } from '../lib/types'
+
+/** Riga toccabile di una lista raggruppata. */
+function NavRow({ title, sub, detail, onClick }: { title: string; sub?: string; detail?: React.ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="block w-full pl-4 text-left active:bg-card-2 [&:first-child>div]:border-t-0">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-t-[0.5px] border-sep py-2.5 pr-4">
+        <span className="min-w-0">
+          <span className="block font-semibold">{title}</span>
+          {sub && <span className="block truncate text-[13px] text-label-2">{sub}</span>}
+        </span>
+        <span className="shrink-0 text-right">
+          {detail} <span className="text-label-3">›</span>
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="block min-h-12 w-full border-t-[0.5px] border-sep px-4 text-left text-accent first:border-t-0">
+      {label}
+    </button>
+  )
+}
 
 export function Programma({ onImport }: { onImport: () => void }) {
   const settings = useSettings()
   const lifts = useLifts()
   const days = useDays()
   const exercises = useExercises()
+  const [positionOpen, setPositionOpen] = useState(false)
   const [liftId, setLiftId] = useState<string | null>(null)
   const [dayId, setDayId] = useState<string | null>(null)
   const [editEx, setEditEx] = useState<Exercise | null | 'new'>(null)
@@ -43,79 +70,45 @@ export function Programma({ onImport }: { onImport: () => void }) {
 
   return (
     <Screen title="Programma">
-      <Group header="Esercizi principali 5/3/1" footer="Tocca un esercizio per il TM o per ripetere, inserire o saltare una settimana.">
-        {lifts.map((l) => (
-          <button
-            key={l.exerciseId}
-            type="button"
-            onClick={() => setLiftId(l.exerciseId)}
-            className="block w-full pl-4 text-left active:bg-card-2 [&:first-child>div]:border-t-0"
-          >
-            <div className="flex min-h-14 items-center justify-between gap-3 border-t-[0.5px] border-sep py-2.5 pr-4">
-              <span>
-                <span className="block font-semibold">{name(l.exerciseId)}</span>
-                <span className="block text-[13px] text-label-2">{positionLabel(l)}</span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block font-semibold tabular-nums">TM {formatKg(l.tm)}</span>
-                {l.pendingTm && <span className="block text-[13px] text-accent">nuovo TM da confermare</span>}
-              </span>
-            </div>
-          </button>
-        ))}
-        <button type="button" onClick={() => setAddingLift(true)} className="block min-h-12 w-full border-t-[0.5px] border-sep px-4 text-left text-accent first:border-t-0">
-          + Aggiungi esercizio principale
-        </button>
+      <Group header="Dove sei" footer="Tocca per ripetere, aggiungere o saltare una settimana, o per cambiare ogni quanto c'è lo scarico.">
+        <NavRow
+          title={positionLabel(settings.cycleConfig, settings.position)}
+          sub={
+            settings.cycleConfig.template === 'forever'
+              ? '5/3/1 Forever'
+              : `Scarico ogni ${settings.cycleConfig.deloadEvery === 1 ? 'ciclo' : `${settings.cycleConfig.deloadEvery} cicli`}`
+          }
+          onClick={() => setPositionOpen(true)}
+        />
       </Group>
 
-      <Group header="Giorni (in sequenza)" footer="Dopo l'ultimo giorno si riparte dal primo: un giro completo è un microciclo.">
-        {days.map((d, i) => (
-          <button
-            key={d.id}
-            type="button"
-            onClick={() => setDayId(d.id)}
-            className="block w-full pl-4 text-left active:bg-card-2 [&:first-child>div]:border-t-0"
-          >
-            <div className="flex min-h-14 items-center justify-between gap-3 border-t-[0.5px] border-sep py-2.5 pr-4">
-              <span className="min-w-0">
-                <span className="block font-semibold">{d.name}</span>
-                <span className="block truncate text-[13px] text-label-2">
-                  {d.exercises.map((pe) => name(pe.exerciseId)).join(', ') || 'Nessun esercizio'}
-                </span>
-              </span>
-              {i === settings.nextDayIdx && <span className="shrink-0 text-[13px] font-semibold text-accent">prossimo</span>}
-            </div>
-          </button>
+      <Group header="Training Max">
+        {lifts.map((l) => (
+          <NavRow
+            key={l.exerciseId}
+            title={name(l.exerciseId)}
+            sub={l.pendingTm ? `Nuovo TM da confermare: ${formatKg(l.pendingTm.proposed)} kg` : fslText(l)}
+            detail={<span className="font-semibold tabular-nums">{formatKg(l.tm)} kg</span>}
+            onClick={() => setLiftId(l.exerciseId)}
+          />
         ))}
-        <button type="button" onClick={() => void addDay()} className="block min-h-12 w-full border-t-[0.5px] border-sep px-4 text-left text-accent first:border-t-0">
-          + Aggiungi giorno
-        </button>
+        <AddRow label="+ Aggiungi esercizio principale" onClick={() => setAddingLift(true)} />
+      </Group>
+
+      <Group header="Giorni della settimana">
+        {days.map((d) => (
+          <NavRow key={d.id} title={d.name} sub={d.exercises.map((pe) => name(pe.exerciseId)).join(', ') || 'Nessun esercizio'} onClick={() => setDayId(d.id)} />
+        ))}
+        <AddRow label="+ Aggiungi giorno" onClick={() => void addDay()} />
       </Group>
 
       <Group header={`Esercizi (${exercises.size})`}>
         {[...exercises.values()]
           .sort((a, b) => a.name.localeCompare(b.name, 'it'))
           .map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              onClick={() => setEditEx(e)}
-              className="block w-full pl-4 text-left active:bg-card-2 [&:first-child>div]:border-t-0"
-            >
-              <div className="flex min-h-12 items-center justify-between gap-3 border-t-[0.5px] border-sep py-2 pr-4">
-                <span>{e.name}</span>
-                <span className="shrink-0 text-[13px] text-label-2">
-                  {Object.entries(e.muscles)
-                    .filter(([, v]) => v === 1)
-                    .map(([m]) => m)
-                    .join(', ')}
-                </span>
-              </div>
-            </button>
+            <NavRow key={e.id} title={e.name} onClick={() => setEditEx(e)} />
           ))}
-        <button type="button" onClick={() => setEditEx('new')} className="block min-h-12 w-full border-t-[0.5px] border-sep px-4 text-left text-accent first:border-t-0">
-          + Nuovo esercizio
-        </button>
+        <AddRow label="+ Nuovo esercizio" onClick={() => setEditEx('new')} />
       </Group>
 
       <div className="px-4">
@@ -124,6 +117,7 @@ export function Programma({ onImport }: { onImport: () => void }) {
         </Button>
       </div>
 
+      {positionOpen && <PositionSheet settings={settings} onClose={() => setPositionOpen(false)} />}
       {liftId && <LiftSheet lift={lifts.find((l) => l.exerciseId === liftId)} name={name(liftId)} settings={settings} onClose={() => setLiftId(null)} />}
       {dayId && (
         <DaySheet
@@ -146,8 +140,128 @@ export function Programma({ onImport }: { onImport: () => void }) {
           setNewLiftEx(e)
         }}
       />
-      {newLiftEx && <NewLiftSheet exercise={newLiftEx} exists={lifts.some((l) => l.exerciseId === newLiftEx.id)} onClose={() => setNewLiftEx(null)} settings={settings} />}
+      {newLiftEx && (
+        <NewLiftSheet exercise={newLiftEx} exists={lifts.some((l) => l.exerciseId === newLiftEx.id)} onClose={() => setNewLiftEx(null)} settings={settings} />
+      )}
     </Screen>
+  )
+}
+
+const fslText = (l: Lift) => {
+  const parts = (['S1', 'S2', 'S3'] as const).filter((w) => (l.fsl[w]?.sets ?? 0) > 0).map((w) => `${w} ${l.fsl[w]!.sets}×${l.fsl[w]!.reps}`)
+  return parts.length ? `FSL ${parts.join(' · ')}` : 'Senza FSL'
+}
+
+const EXTRA_OPTIONS: { value: WeekKind; label: string }[] = [
+  { value: 'S1', label: 'S1' },
+  { value: 'S2', label: 'S2' },
+  { value: 'S3', label: 'S3' },
+  { value: 'DELOAD', label: 'Scarico' },
+  { value: 'SEVENTH_DELOAD', label: '7ª scarico' },
+  { value: 'SEVENTH_TEST', label: '7ª test TM' },
+]
+
+function PositionSheet({ settings, onClose }: { settings: Settings; onClose: () => void }) {
+  const confirm = useConfirm()
+  const [extra, setExtra] = useState<WeekKind | null>(null)
+  const cfg = settings.cycleConfig
+  const pos = settings.position
+  const prev = previousWeekLabel(cfg, pos)
+  const setPos = (position: Settings['position']) => void updateSettings({ position })
+  const setCfg = (patch: Partial<CycleConfig>) => {
+    const next = { ...cfg, ...patch }
+    // La settimana attuale deve restare dentro il ciclo anche se cambia la struttura.
+    const len = weeksOfCycle(next, pos.cycle).length
+    void updateSettings({ cycleConfig: next, position: { ...pos, weekIdx: Math.min(pos.weekIdx, len - 1) } })
+  }
+
+  return (
+    <Sheet open title="Dove sei" onClose={onClose}>
+      <div className="flex flex-col gap-6">
+        <p className="text-[22px] font-bold">{positionLabel(cfg, pos)}</p>
+
+        <div className="flex flex-col gap-3">
+          <Button
+            kind="secondary"
+            disabled={!prev}
+            onClick={() =>
+              confirm.ask(`Rifai la ${prev}, poi riprendi con la ${WEEK_LABEL[currentWeek(cfg, pos)]}.`, `Ripeti ${prev ?? ''}`, () =>
+                setPos(repeatLastWeek(cfg, pos)),
+              )
+            }
+          >
+            Ripeti la settimana precedente{prev ? ` (${prev})` : ''}
+          </Button>
+          <div className="rounded-xl bg-card p-3">
+            <p className="mb-2 text-[15px]">Aggiungi una settimana extra prima di questa:</p>
+            <Choice options={EXTRA_OPTIONS} value={extra} onChange={setExtra} />
+            <Button
+              kind="secondary"
+              className="mt-3 w-full"
+              disabled={!extra}
+              onClick={() =>
+                extra &&
+                confirm.ask(`Fai una ${WEEK_LABEL[extra]} extra, poi il ciclo continua da dove era.`, 'Aggiungi', () => {
+                  setPos(insertExtraWeek(pos, extra))
+                  setExtra(null)
+                })
+              }
+            >
+              Aggiungi settimana extra
+            </Button>
+          </div>
+          <Button
+            kind="secondary"
+            onClick={() =>
+              confirm.ask(
+                `Salti la ${WEEK_LABEL[currentWeek(cfg, pos)]} e passi a: ${positionLabel(cfg, skipWeek(cfg, pos))}. I TM non cambiano.`,
+                'Salta',
+                () => setPos(skipWeek(cfg, pos)),
+              )
+            }
+          >
+            Salta questa settimana
+          </Button>
+        </div>
+
+        <Field label="Struttura dei cicli">
+          <div className="flex flex-col gap-3">
+            <Choice
+              options={[
+                { value: 'original', label: '5/3/1 originale' },
+                { value: 'forever', label: '5/3/1 Forever' },
+              ]}
+              value={cfg.template}
+              onChange={(v) => v && setCfg({ template: v })}
+            />
+            {cfg.template === 'original' ? (
+              <Stepper
+                label="Scarico ogni"
+                value={cfg.deloadEvery}
+                onChange={(v) => setCfg({ deloadEvery: Math.max(1, v ?? 1) })}
+                min={1}
+                max={6}
+                suffix={cfg.deloadEvery === 1 ? 'ciclo' : 'cicli'}
+              />
+            ) : (
+              <>
+                <Stepper label="Leader" value={cfg.leaderCycles} onChange={(v) => setCfg({ leaderCycles: Math.max(1, v ?? 1) })} min={1} max={6} suffix="cicli" />
+                <Stepper label="Anchor" value={cfg.anchorCycles} onChange={(v) => setCfg({ anchorCycles: Math.max(0, v ?? 0) })} min={0} max={6} suffix="cicli" />
+                <Choice
+                  options={[
+                    { value: 'deload', label: '7ª: scarico' },
+                    { value: 'tmtest', label: '7ª: test del TM' },
+                  ]}
+                  value={cfg.seventhWeek}
+                  onChange={(v) => v && setCfg({ seventhWeek: v })}
+                />
+              </>
+            )}
+          </div>
+        </Field>
+      </div>
+      {confirm.node}
+    </Sheet>
   )
 }
 
@@ -180,28 +294,12 @@ function NewLiftSheet({ exercise, exists, onClose, settings }: { exercise: Exerc
   )
 }
 
-const EXTRA_OPTIONS: { value: WeekKind; label: string }[] = [
-  { value: 'S1', label: 'S1' },
-  { value: 'S2', label: 'S2' },
-  { value: 'S3', label: 'S3' },
-  { value: 'DELOAD', label: 'Scarico' },
-  { value: 'SEVENTH_DELOAD', label: '7ª scarico' },
-  { value: 'SEVENTH_TEST', label: '7ª test TM' },
-]
-
 function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; name: string; settings: Settings; onClose: () => void }) {
   const confirm = useConfirm()
   const [tm, setTmValue] = useState<number | null>(lift?.tm ?? null)
-  const [extra, setExtra] = useState<WeekKind | null>(null)
   const history = useLiveQuery(() => db.tmHistory.where('exerciseId').equals(lift?.exerciseId ?? '').reverse().sortBy('date'), [lift?.exerciseId])
   if (!lift) return null
-
   const save = (patch: Partial<Lift>) => void db.lifts.put({ ...lift, ...patch })
-  const prevWeekLabel = (() => {
-    const p = repeatLastWeek(lift)
-    return p.extra ? WEEK_LABEL[p.extra] : null
-  })()
-  const after = (p: Lift['position']) => positionLabel({ ...lift, position: p })
 
   return (
     <Sheet open title={name} onClose={onClose}>
@@ -225,89 +323,6 @@ function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; 
           </div>
         </Field>
 
-        <Field label="Posizione nel ciclo">
-          <div className="flex flex-col gap-3">
-            <p className="text-[20px] font-bold">{positionLabel(lift)}</p>
-            <Button
-              kind="secondary"
-              disabled={!prevWeekLabel}
-              onClick={() =>
-                confirm.ask(
-                  `La prossima volta rifai la ${prevWeekLabel}, poi riprendi con ${WEEK_LABEL[currentWeek(lift)]}.`,
-                  `Ripeti ${prevWeekLabel ?? ''}`,
-                  () => save({ position: repeatLastWeek(lift) }),
-                )
-              }
-            >
-              Ripeti la settimana precedente{prevWeekLabel ? ` (${prevWeekLabel})` : ''}
-            </Button>
-            <div className="rounded-xl bg-card p-3">
-              <p className="mb-2 text-[15px]">Inserisci una settimana extra prima della prossima:</p>
-              <Choice options={EXTRA_OPTIONS} value={extra} onChange={setExtra} />
-              <Button
-                kind="secondary"
-                className="mt-3 w-full"
-                disabled={!extra}
-                onClick={() =>
-                  extra &&
-                  confirm.ask(`La prossima volta fai una ${WEEK_LABEL[extra]} extra. Il ciclo poi continua da dove era.`, 'Inserisci', () => {
-                    save({ position: insertExtraWeek(lift, extra) })
-                    setExtra(null)
-                  })
-                }
-              >
-                Inserisci settimana extra
-              </Button>
-            </div>
-            <Button
-              kind="secondary"
-              onClick={() =>
-                confirm.ask(`Salti la ${WEEK_LABEL[currentWeek(lift)]}: si passa a ${after(skipWeek(lift))}. Il TM non cambia.`, 'Salta', () =>
-                  save({ position: skipWeek(lift) }),
-                )
-              }
-            >
-              Salta questa settimana
-            </Button>
-          </div>
-        </Field>
-
-        <Field label="Schema">
-          <div className="flex flex-col gap-3">
-            <Choice
-              options={[
-                { value: 'original', label: '5/3/1 originale' },
-                { value: 'forever', label: '5/3/1 Forever' },
-              ]}
-              value={lift.template}
-              onChange={(v) => v && save({ template: v, position: { ...lift.position, weekIdx: Math.min(lift.position.weekIdx, 2) } })}
-            />
-            {lift.template === 'original' ? (
-              <Stepper
-                label="Scarico ogni"
-                value={lift.deloadEvery}
-                onChange={(v) => save({ deloadEvery: Math.max(1, v ?? 1), position: clampPos(lift, { deloadEvery: Math.max(1, v ?? 1) }) })}
-                min={1}
-                max={6}
-                suffix={lift.deloadEvery === 1 ? 'ciclo' : 'cicli'}
-              />
-            ) : (
-              <>
-                <Stepper label="Leader" value={lift.leaderCycles} onChange={(v) => save({ leaderCycles: Math.max(1, v ?? 1) })} min={1} max={6} suffix="cicli" />
-                <Stepper label="Anchor" value={lift.anchorCycles} onChange={(v) => save({ anchorCycles: Math.max(0, v ?? 0) })} min={0} max={6} suffix="cicli" />
-                <Choice
-                  options={[
-                    { value: 'deload', label: '7ª: scarico' },
-                    { value: 'tmtest', label: '7ª: test del TM' },
-                  ]}
-                  value={lift.seventhWeek}
-                  onChange={(v) => v && save({ seventhWeek: v })}
-                />
-              </>
-            )}
-          </div>
-        </Field>
-
         <Field label="FSL (peso del primo set)">
           <div className="flex flex-col gap-2">
             {(['S1', 'S2', 'S3'] as const).map((w) => (
@@ -317,7 +332,13 @@ function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; 
                   <Stepper value={lift.fsl[w]?.sets ?? 0} onChange={(v) => save({ fsl: { ...lift.fsl, [w]: { sets: v ?? 0, reps: lift.fsl[w]?.reps ?? 5 } } })} max={10} suffix="set" />
                 </div>
                 <div className="flex-1">
-                  <Stepper value={lift.fsl[w]?.reps ?? 5} onChange={(v) => save({ fsl: { ...lift.fsl, [w]: { sets: lift.fsl[w]?.sets ?? 0, reps: Math.max(1, v ?? 5) } } })} min={1} max={20} suffix="reps" />
+                  <Stepper
+                    value={lift.fsl[w]?.reps ?? 5}
+                    onChange={(v) => save({ fsl: { ...lift.fsl, [w]: { sets: lift.fsl[w]?.sets ?? 0, reps: Math.max(1, v ?? 5) } } })}
+                    min={1}
+                    max={20}
+                    suffix="reps"
+                  />
                 </div>
               </div>
             ))}
@@ -325,18 +346,8 @@ function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; 
           </div>
         </Field>
 
-        <Field label="Regola del nuovo TM (set «+» della S3)">
+        <Field label="Nuovo TM a fine ciclo (set «+» della S3)">
           <TmRulesEditor lift={lift} settings={settings} onChange={(tmRules) => save({ tmRules })} />
-        </Field>
-
-        <Field label="Recuperi (secondi)">
-          <div className="flex flex-col gap-2">
-            <Stepper label="Lavoro" value={lift.rest.work} onChange={(v) => save({ rest: { ...lift.rest, work: v ?? 0 } })} step={15} />
-            <Stepper label="Prima del +" value={lift.rest.beforePlus} onChange={(v) => save({ rest: { ...lift.rest, beforePlus: v ?? 0 } })} step={15} />
-            <Stepper label="Dopo il +" value={lift.rest.afterPlus} onChange={(v) => save({ rest: { ...lift.rest, afterPlus: v ?? 0 } })} step={15} />
-            <Stepper label="FSL" value={lift.rest.fsl} onChange={(v) => save({ rest: { ...lift.rest, fsl: v ?? 0 } })} step={15} />
-            <Stepper label="FSL, reps perse" value={lift.rest.fslMissed} onChange={(v) => save({ rest: { ...lift.rest, fslMissed: v ?? 0 } })} step={15} />
-          </div>
         </Field>
 
         <Field label="Storico del TM">
@@ -356,7 +367,7 @@ function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; 
         <Button
           kind="danger"
           onClick={() =>
-            confirm.ask(`${name} non sarà più un esercizio principale 5/3/1. Lo storico dei workout resta.`, 'Togli dai principali', () => {
+            confirm.ask(`${name} non sarà più un esercizio principale 5/3/1. Lo storico resta.`, 'Togli dai principali', () => {
               void db.lifts.delete(lift.exerciseId)
               onClose()
             })
@@ -368,13 +379,6 @@ function LiftSheet({ lift, name, settings, onClose }: { lift: Lift | undefined; 
       {confirm.node}
     </Sheet>
   )
-}
-
-/** Se cambia la cadenza dello scarico, la posizione deve restare dentro il ciclo. */
-function clampPos(lift: Lift, patch: Partial<Lift>): Lift['position'] {
-  const next = { ...lift, ...patch }
-  const len = weeksOfCycle(next, lift.position.cycle).length
-  return { ...lift.position, weekIdx: Math.min(lift.position.weekIdx, len - 1) }
 }
 
 function TmRulesEditor({ lift, settings, onChange }: { lift: Lift; settings: Settings; onChange: (r: Lift['tmRules']) => void }) {
@@ -391,7 +395,14 @@ function TmRulesEditor({ lift, settings, onChange }: { lift: Lift; settings: Set
         <div key={i} className="rounded-xl bg-card p-3">
           <Stepper label="Reps ≥" value={r.minReps} onChange={(v) => onChange(rules.map((x, j) => (j === i ? { ...x, minReps: v ?? 0 } : x)))} max={30} />
           <div className="mt-2">
-            <Stepper label="TM +" value={r.increment} onChange={(v) => onChange(rules.map((x, j) => (j === i ? { ...x, increment: v ?? 0 } : x)))} step={settings.roundingStep} decimal suffix="kg" />
+            <Stepper
+              label="TM +"
+              value={r.increment}
+              onChange={(v) => onChange(rules.map((x, j) => (j === i ? { ...x, increment: v ?? 0 } : x)))}
+              step={settings.roundingStep}
+              decimal
+              suffix="kg"
+            />
           </div>
           <button type="button" className="mt-1 min-h-11 text-[15px] text-danger" onClick={() => onChange(rules.filter((_, j) => j !== i))}>
             Togli questa soglia
@@ -399,7 +410,10 @@ function TmRulesEditor({ lift, settings, onChange }: { lift: Lift; settings: Set
         </div>
       ))}
       {rules.length > 0 && <p className="text-[13px] text-label-2">Sotto tutte le soglie: TM invariato.</p>}
-      <Button kind="secondary" onClick={() => onChange([...rules, { minReps: rules.length ? rules[rules.length - 1].minReps - 1 : 4, increment: settings.upperIncrement }])}>
+      <Button
+        kind="secondary"
+        onClick={() => onChange([...rules, { minReps: rules.length ? rules[rules.length - 1].minReps - 1 : 4, increment: settings.upperIncrement }])}
+      >
         + Aggiungi soglia
       </Button>
     </div>
@@ -431,9 +445,8 @@ function DaySheet({
   const setExercises = (list: PlannedExercise[]) => save({ exercises: list })
 
   const moveDay = async (dir: -1 | 1) => {
-    const j = index + dir
-    if (j < 0 || j >= days.length) return
-    const other = days[j]
+    const other = days[index + dir]
+    if (!other) return
     await db.transaction('rw', db.days, async () => {
       await db.days.put({ ...day, order: other.order })
       await db.days.put({ ...other, order: day.order })
@@ -476,18 +489,14 @@ function DaySheet({
             ↓ Dopo
           </Button>
         </div>
-        <Button kind="secondary" disabled={settings.nextDayIdx === index} onClick={() => void updateSettings({ nextDayIdx: index })}>
-          {settings.nextDayIdx === index ? 'È il prossimo allenamento' : 'Fallo come prossimo allenamento'}
-        </Button>
         <Button
           kind="danger"
           onClick={() =>
-            confirm.ask(`Eliminare «${day.name}» dal programma? Lo storico dei workout resta.`, 'Elimina giorno', async () => {
-              await db.transaction('rw', db.days, db.settings, async () => {
+            confirm.ask(`Eliminare «${day.name}» dal programma? Lo storico resta.`, 'Elimina giorno', async () => {
+              await db.transaction('rw', db.days, async () => {
                 await db.days.delete(day.id)
                 const rest = (await db.days.orderBy('order').toArray()).filter((d) => d.id !== day.id)
                 for (const [i, d] of rest.entries()) await db.days.put({ ...d, order: i })
-                await updateSettings({ nextDayIdx: Math.min(settings.nextDayIdx, Math.max(0, rest.length - 1)) })
               })
               onClose()
             })
@@ -537,7 +546,7 @@ function DaySheet({
   )
 }
 
-export function plannedSummary(pe: PlannedExercise): string {
+function plannedSummary(pe: PlannedExercise): string {
   if (pe.role === 'main531') return '5/3/1 + FSL (dal TM)'
   const parts: string[] = []
   parts.push(pe.sets != null && (pe.reps != null || pe.repMax != null) ? `${pe.sets}×${pe.reps ?? pe.repMax}` : 'set e reps da completare')
@@ -586,6 +595,7 @@ function PlannedSheet({
           <>
             <Stepper label="Set" value={pe.sets ?? null} onChange={(v) => set({ sets: v })} min={1} max={20} />
             <Stepper label="Reps" value={pe.reps ?? null} onChange={(v) => set({ reps: v })} min={1} max={100} />
+            <Stepper label="Peso" value={pe.weight ?? null} onChange={(v) => set({ weight: v })} step={settings.roundingStep} decimal suffix="kg" />
             <Field label="Range per la doppia progressione">
               <div className="flex flex-col gap-2">
                 <Stepper label="Da" value={pe.repMin ?? null} onChange={(v) => set({ repMin: v })} min={1} max={100} />
@@ -593,14 +603,11 @@ function PlannedSheet({
                 <Stepper label="RPE max" value={pe.rpeMax ?? null} onChange={(v) => set({ rpeMax: v })} step={0.5} min={5} max={10} decimal />
               </div>
             </Field>
-            <Stepper label="Peso" value={pe.weight ?? null} onChange={(v) => set({ weight: v })} step={settings.roundingStep} decimal suffix="kg" />
             <div className="rounded-xl bg-card px-4 py-1">
               <Toggle label="Doppia progressione" checked={pe.progression !== 'none'} onChange={(v) => set({ progression: v ? 'double' : 'none' })} />
             </div>
           </>
         )}
-        <Stepper label="Recupero" value={pe.restSec ?? null} onChange={(v) => set({ restSec: v })} step={15} suffix="s" />
-        <p className="-mt-3 text-[13px] text-label-2">Vuoto = recupero di default dell'esercizio.</p>
         <Field label="Superset (stessa lettera = alternati)">
           <Choice options={['A', 'B', 'C', 'D'].map((l) => ({ value: l, label: l }))} value={pe.superset ?? null} onChange={(v) => set({ superset: v })} allowNone />
         </Field>

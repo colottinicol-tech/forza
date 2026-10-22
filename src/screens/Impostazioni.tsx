@@ -1,6 +1,6 @@
 // Impostazioni: pesi e dischi, progressione, timer, backup e import, stato dell'app.
 import { useEffect, useState } from 'react'
-import { Button, Choice, Field, Sheet, Stepper, Toggle } from '../components/controls'
+import { Button, Choice, Field, Sheet, Stepper } from '../components/controls'
 import { PlatesEditor } from '../components/PlatesEditor'
 import { Group, Row, Screen } from '../components/ui'
 import { exportBackup, readBackup, restoreBackup, type BackupSummary } from '../lib/dataio'
@@ -18,7 +18,7 @@ function Status({ ok, yes, no }: { ok: boolean | null; yes: string; no: string }
   return <span className={ok ? 'text-done' : 'text-label-2'}>{ok ? yes : no}</span>
 }
 
-type Panel = 'weights' | 'plates' | 'warmup' | 'progression' | 'timer' | null
+type Panel = 'weights' | 'plates' | 'warmup' | 'progression' | null
 
 export function Impostazioni({ onImport }: { onImport: () => void }) {
   const settings = useSettings()
@@ -67,7 +67,6 @@ export function Impostazioni({ onImport }: { onImport: () => void }) {
         <NavRow label="Dischi disponibili" detail={`${plateCount} tipi`} onClick={() => setPanel('plates')} />
         <NavRow label="Riscaldamento dei principali" detail={settings.warmup.map((w) => `${Math.round(w.pct * 100)}%`).join(' / ')} onClick={() => setPanel('warmup')} />
         <NavRow label="Progressione e e1RM" detail={`+${formatKg(settings.upperIncrement)} / +${formatKg(settings.lowerIncrement)}`} onClick={() => setPanel('progression')} />
-        <NavRow label="Timer di recupero" detail={`${settings.restAccessory} s`} onClick={() => setPanel('timer')} />
       </Group>
 
       <Group header="Stato dell'app" footer="Servono per controllare che l'installazione sull'iPhone sia corretta.">
@@ -143,7 +142,6 @@ function SettingsPanel({ panel, settings, onClose }: { panel: Panel; settings: S
     plates: 'Dischi disponibili',
     warmup: 'Riscaldamento',
     progression: 'Progressione e e1RM',
-    timer: 'Timer di recupero',
   }
   return (
     <Sheet open={panel !== null} title={panel ? titles[panel] : ''} onClose={onClose}>
@@ -219,23 +217,6 @@ function SettingsPanel({ panel, settings, onClose }: { panel: Panel; settings: S
                 «+ 1» se chiudi i set «+» a RPE 9 (una rep in riserva) invece che al cedimento.
               </p>
             </Field>
-          </>
-        )}
-        {panel === 'timer' && (
-          <>
-            <Field label="Recupero di default dei complementari">
-              <Stepper value={settings.restAccessory} onChange={(v) => set({ restAccessory: v ?? 90 })} step={15} suffix="s" />
-            </Field>
-            <p className="text-[13px] text-label-2">
-              I recuperi dei principali si impostano per ogni esercizio nella scheda Programma.
-            </p>
-            <div className="rounded-xl bg-card px-4 py-1">
-              <Toggle label="Suono a fine recupero" checked={settings.sound} onChange={(sound) => set({ sound })} />
-            </div>
-            <p className="text-[13px] text-label-2">
-              Il suono funziona solo con l'app aperta e la suoneria attiva. iOS non permette vibrazioni né notifiche alle web app
-              senza un server.
-            </p>
           </>
         )}
       </div>

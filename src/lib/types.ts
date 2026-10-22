@@ -40,12 +40,24 @@ export interface TmRule {
   increment: number
 }
 
-export interface LiftPosition {
+/** Dove si trova il programma: tutti gli esercizi avanzano insieme. */
+export interface Position {
   cycle: number
   /** Indice nella sequenza di settimane del ciclo (vedi weeksOfCycle). */
   weekIdx: number
   /** Settimana inserita (extra o ripetuta) da fare prima di proseguire. */
   extra?: WeekKind | null
+}
+
+/** Struttura dei cicli, uguale per tutti gli esercizi principali. */
+export interface CycleConfig {
+  template: 'original' | 'forever'
+  /** Originale: settimana di scarico ogni N cicli (1 = S4 a ogni ciclo). */
+  deloadEvery: number
+  /** Forever: cicli Leader e Anchor, e che cosa fare nella 7ª settimana. */
+  leaderCycles: number
+  anchorCycles: number
+  seventhWeek: 'deload' | 'tmtest'
 }
 
 export interface LiftRest {
@@ -56,21 +68,13 @@ export interface LiftRest {
   fslMissed: number
 }
 
-/** Stato 5/3/1 di un esercizio principale. Una riga per esercizio. */
+/** Esercizio principale 5/3/1: TM e regole. Una riga per esercizio. */
 export interface Lift {
   exerciseId: string
   tm: number
-  template: 'original' | 'forever'
-  /** Originale: settimana di scarico ogni N cicli (1 = S4 a ogni ciclo). */
-  deloadEvery: number
-  /** Forever: cicli Leader e Anchor, e che cosa fare nella 7ª settimana. */
-  leaderCycles: number
-  anchorCycles: number
-  seventhWeek: 'deload' | 'tmtest'
   fsl: Partial<Record<'S1' | 'S2' | 'S3', FslSpec>>
   /** Vuoto = regola standard (+incremento se il set "+" raggiunge l'obiettivo). */
   tmRules: TmRule[]
-  position: LiftPosition
   pendingTm?: { proposed: number; reason: string } | null
   rest: LiftRest
 }
@@ -137,13 +141,18 @@ export interface Session {
   id: string
   dayId: string | null
   dayName: string
+  /** Settimana del programma in cui è stato fatto il giorno (vedi slotKey). */
+  slot: string
+  cycle: number
+  week: WeekKind
   startedAt: number
   endedAt: number | null
   status: 'active' | 'done'
   notes: string
   sessionRpe?: number | null
-  microcycle: number
   deload: boolean
+  /** Per togliere la spunta all'ultimo giorno di una settimana: com'era prima che la settimana avanzasse. */
+  undo?: { position: Position; pendingTm: { exerciseId: string; pendingTm: Lift['pendingTm'] }[] } | null
   exercises: SessionExercise[]
 }
 
@@ -172,10 +181,7 @@ export interface Settings {
   upperIncrement: number
   lowerIncrement: number
   restAccessory: number
-  /** Indice del prossimo giorno da fare e numero del microciclo (giro di tutti i giorni). */
-  nextDayIdx: number
-  microcycle: number
+  cycleConfig: CycleConfig
+  position: Position
   lastBackupAt: number | null
-  timer: { endsAt: number; total: number } | null
-  sound: boolean
 }

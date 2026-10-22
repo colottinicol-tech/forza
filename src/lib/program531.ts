@@ -1,5 +1,6 @@
-// Motore 5/3/1: settimane del ciclo, set pianificati, avanzamento e proposta del nuovo TM.
-import type { Exercise, Lift, LiftPosition, SessionSet, SetType, Settings, WeekKind } from './types'
+// Motore 5/3/1: settimane del ciclo, pesi pianificati, avanzamento e proposta del nuovo TM.
+// Tutti gli esercizi principali sono nella stessa settimana (una sola posizione per il programma).
+import type { CycleConfig, Exercise, Lift, Position, SessionSet, SetType, Settings, WeekKind } from './types'
 import { roundWeight } from './weights'
 
 interface PlannedPct {
@@ -30,96 +31,98 @@ export const WEEK_LABEL: Record<WeekKind, string> = {
   S1: 'S1',
   S2: 'S2',
   S3: 'S3',
-  DELOAD: 'Scarico',
+  DELOAD: 'S4 scarico',
   SEVENTH_DELOAD: '7ª settimana (scarico)',
   SEVENTH_TEST: '7ª settimana (test del TM)',
 }
 
 export const isDeloadWeek = (kind: WeekKind) => kind === 'DELOAD' || kind === 'SEVENTH_DELOAD'
 
-/** Settimane del ciclo `cycle` (1, 2, 3...) per questo esercizio. */
-export function weeksOfCycle(lift: Lift, cycle: number): WeekKind[] {
+/** Settimane del ciclo `cycle` (1, 2, 3...). */
+export function weeksOfCycle(cfg: CycleConfig, cycle: number): WeekKind[] {
   const base: WeekKind[] = ['S1', 'S2', 'S3']
-  if (lift.template === 'forever') {
-    const block = Math.max(1, lift.leaderCycles) + Math.max(0, lift.anchorCycles)
+  if (cfg.template === 'forever') {
+    const leader = Math.max(1, cfg.leaderCycles)
+    const block = leader + Math.max(0, cfg.anchorCycles)
     const k = ((cycle - 1) % block) + 1
-    const seventh: WeekKind = lift.seventhWeek === 'tmtest' ? 'SEVENTH_TEST' : 'SEVENTH_DELOAD'
-    const endsPhase = k === Math.max(1, lift.leaderCycles) || k === block
-    return endsPhase ? [...base, seventh] : base
+    const seventh: WeekKind = cfg.seventhWeek === 'tmtest' ? 'SEVENTH_TEST' : 'SEVENTH_DELOAD'
+    return k === leader || k === block ? [...base, seventh] : base
   }
-  const every = Math.max(1, Math.round(lift.deloadEvery))
+  const every = Math.max(1, Math.round(cfg.deloadEvery))
   return cycle % every === 0 ? [...base, 'DELOAD'] : base
 }
 
 /** Fase di 5/3/1 Forever del ciclo, oppure null per il 5/3/1 originale. */
-export function foreverPhase(lift: Lift, cycle: number): 'Leader' | 'Anchor' | null {
-  if (lift.template !== 'forever') return null
-  const block = Math.max(1, lift.leaderCycles) + Math.max(0, lift.anchorCycles)
-  const k = ((cycle - 1) % block) + 1
-  return k <= Math.max(1, lift.leaderCycles) ? 'Leader' : 'Anchor'
+export function foreverPhase(cfg: CycleConfig, cycle: number): 'Leader' | 'Anchor' | null {
+  if (cfg.template !== 'forever') return null
+  const leader = Math.max(1, cfg.leaderCycles)
+  const k = ((cycle - 1) % (leader + Math.max(0, cfg.anchorCycles))) + 1
+  return k <= leader ? 'Leader' : 'Anchor'
 }
 
 /** La settimana da fare adesso. */
-export function currentWeek(lift: Lift): WeekKind {
-  if (lift.position.extra) return lift.position.extra
-  const weeks = weeksOfCycle(lift, lift.position.cycle)
-  return weeks[Math.min(lift.position.weekIdx, weeks.length - 1)]
+export function currentWeek(cfg: CycleConfig, pos: Position): WeekKind {
+  if (pos.extra) return pos.extra
+  const weeks = weeksOfCycle(cfg, pos.cycle)
+  return weeks[Math.min(pos.weekIdx, weeks.length - 1)]
 }
 
 /** Es. "Ciclo 1 · S3", "Ciclo 2 (Leader) · S1", "Ciclo 1 · S2 extra". */
-export function positionLabel(lift: Lift): string {
-  const phase = foreverPhase(lift, lift.position.cycle)
-  const cycle = `Ciclo ${lift.position.cycle}${phase ? ` (${phase})` : ''}`
-  const week = WEEK_LABEL[currentWeek(lift)]
-  return `${cycle} · ${week}${lift.position.extra ? ' extra' : ''}`
+export function positionLabel(cfg: CycleConfig, pos: Position): string {
+  const phase = foreverPhase(cfg, pos.cycle)
+  return `Ciclo ${pos.cycle}${phase ? ` (${phase})` : ''} · ${WEEK_LABEL[currentWeek(cfg, pos)]}${pos.extra ? ' extra' : ''}`
 }
 
+/** Identifica una settimana del programma: i giorni fatti in quella settimana hanno lo stesso slot. */
+export const slotKey = (pos: Position) => `${pos.cycle}:${pos.weekIdx}:${pos.extra ?? ''}`
+
 /** Posizione dopo aver completato (o saltato) la settimana corrente. */
-export function nextPosition(lift: Lift): LiftPosition {
-  const { cycle, weekIdx, extra } = lift.position
+export function nextPosition(cfg: CycleConfig, pos: Position): Position {
+  const { cycle, weekIdx, extra } = pos
   if (extra) return { cycle, weekIdx, extra: null }
-  const weeks = weeksOfCycle(lift, cycle)
-  if (weekIdx + 1 < weeks.length) return { cycle, weekIdx: weekIdx + 1, extra: null }
+  if (weekIdx + 1 < weeksOfCycle(cfg, cycle).length) return { cycle, weekIdx: weekIdx + 1, extra: null }
   return { cycle: cycle + 1, weekIdx: 0, extra: null }
 }
 
-/** Posizione precedente nella sequenza (null se siamo all'inizio). */
-function previousWeek(lift: Lift): WeekKind | null {
-  const { cycle, weekIdx } = lift.position
-  if (weekIdx > 0) return weeksOfCycle(lift, cycle)[weekIdx - 1]
-  if (cycle > 1) {
-    const prev = weeksOfCycle(lift, cycle - 1)
+/** La settimana fatta prima di quella attuale (null all'inizio del programma). */
+function previousWeek(cfg: CycleConfig, pos: Position): WeekKind | null {
+  if (pos.weekIdx > 0) return weeksOfCycle(cfg, pos.cycle)[pos.weekIdx - 1]
+  if (pos.cycle > 1) {
+    const prev = weeksOfCycle(cfg, pos.cycle - 1)
     return prev[prev.length - 1]
   }
   return null
 }
 
-/** Comandi della schermata Programma per riallineare gli esercizi. */
-export function repeatLastWeek(lift: Lift): LiftPosition {
-  const prev = previousWeek(lift)
-  return prev ? { ...lift.position, extra: prev } : lift.position
+/** Comandi per riallinearsi: ripeti la settimana precedente, inserisci una settimana extra, salta. */
+export function repeatLastWeek(cfg: CycleConfig, pos: Position): Position {
+  const prev = previousWeek(cfg, pos)
+  return prev ? { ...pos, extra: prev } : pos
 }
 
-export function insertExtraWeek(lift: Lift, kind: WeekKind): LiftPosition {
-  return { ...lift.position, extra: kind }
+export function insertExtraWeek(pos: Position, kind: WeekKind): Position {
+  return { ...pos, extra: kind }
 }
 
-export function skipWeek(lift: Lift): LiftPosition {
-  return nextPosition(lift)
+export function skipWeek(cfg: CycleConfig, pos: Position): Position {
+  return nextPosition(cfg, pos)
 }
 
-/** Set pianificati (riscaldamento, lavoro, FSL) per la settimana corrente. */
-export function buildMainSets(lift: Lift, settings: Settings, kind: WeekKind = currentWeek(lift)): SessionSet[] {
+export function previousWeekLabel(cfg: CycleConfig, pos: Position): string | null {
+  const prev = previousWeek(cfg, pos)
+  return prev ? WEEK_LABEL[prev] : null
+}
+
+/** Set pianificati (riscaldamento, lavoro, FSL) di una settimana. */
+export function buildMainSets(lift: Lift, settings: Pick<Settings, 'roundingStep' | 'roundingMode' | 'warmup'>, kind: WeekKind): SessionSet[] {
   const round = (pct: number) => roundWeight(lift.tm * pct, settings.roundingStep, settings.roundingMode)
   const sets: SessionSet[] = []
   const work = WEEK_SETS[kind]
 
   // Niente riscaldamento a parte nello scarico: i set sono già leggeri.
   if (kind !== 'DELOAD') {
-    const firstPct = work[0].pct
     for (const wu of settings.warmup) {
-      if (wu.pct >= firstPct) continue
-      sets.push(plannedSet('warmup', round(wu.pct), wu.reps, wu.pct))
+      if (wu.pct < work[0].pct) sets.push(plannedSet('warmup', round(wu.pct), wu.reps, wu.pct))
     }
   }
   for (const p of work) {
@@ -152,8 +155,7 @@ export function proposeTm(
   const target = WEEK_SETS.S3.find((s) => s.type === 'plus')!.reps
   const rules = lift.tmRules.length ? [...lift.tmRules] : [{ minReps: target, increment: defaultInc }]
   rules.sort((a, b) => b.minReps - a.minReps)
-  const rule = rules.find((r) => plusReps >= r.minReps)
-  const increment = rule?.increment ?? 0
+  const increment = rules.find((r) => plusReps >= r.minReps)?.increment ?? 0
   const proposed = roundWeight(lift.tm + increment, settings.roundingStep, settings.roundingMode)
   const reps = `${plusReps} rep${plusReps === 1 ? '' : 's'}`
   let reason: string

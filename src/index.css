@@ -11,6 +11,9 @@
   --label-3: rgba(235, 235, 245, 0.3);
   --sep: rgba(84, 84, 88, 0.65);
   --bar: rgba(22, 22, 24, 0.82);
+  --glass: rgba(40, 40, 44, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-active: rgba(255, 255, 255, 0.13);
   --accent: #ff9f0a;
   --done: #30d158;
   --danger: #ff453a;
@@ -26,6 +29,9 @@
     --label-3: rgba(60, 60, 67, 0.3);
     --sep: rgba(60, 60, 67, 0.29);
     --bar: rgba(249, 249, 249, 0.85);
+    --glass: rgba(255, 255, 255, 0.62);
+    --glass-border: rgba(0, 0, 0, 0.07);
+    --glass-active: rgba(0, 0, 0, 0.07);
     --accent: #f08c00;
     --done: #34c759;
     --danger: #ff3b30;
@@ -84,6 +90,18 @@ button {
   -webkit-user-select: none;
   user-select: none;
   touch-action: manipulation;
+}
+
+/* Vetro della tab bar (Liquid Glass di iOS 26). */
+.glass {
+  background: var(--glass);
+  border: 0.5px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8);
+  backdrop-filter: blur(22px) saturate(1.8);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28);
+}
+.glass-active {
+  background: var(--glass-active);
 }
 
 /* Animazioni sobrie: pannello che sale dal basso. */

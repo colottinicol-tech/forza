@@ -25,25 +25,17 @@ export const DEFAULT_SETTINGS: Settings = {
   upperIncrement: 2.5,
   lowerIncrement: 5,
   restAccessory: 90,
-  nextDayIdx: 0,
-  microcycle: 1,
+  cycleConfig: { template: 'original', deloadEvery: 1, leaderCycles: 2, anchorCycles: 1, seventhWeek: 'deload' },
+  position: { cycle: 1, weekIdx: 0, extra: null },
   lastBackupAt: null,
-  timer: null,
-  sound: true,
 }
 
 export function defaultLift(exerciseId: string, tm: number): Lift {
   return {
     exerciseId,
     tm,
-    template: 'original',
-    deloadEvery: 1,
-    leaderCycles: 2,
-    anchorCycles: 1,
-    seventhWeek: 'deload',
     fsl: {},
     tmRules: [],
-    position: { cycle: 1, weekIdx: 0, extra: null },
     pendingTm: null,
     rest: { work: 120, beforePlus: 180, afterPlus: 180, fsl: 120, fslMissed: 150 },
   }

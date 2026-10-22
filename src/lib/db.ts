@@ -1,7 +1,8 @@
 // Database sul telefono (IndexedDB tramite Dexie) e operazioni che toccano più tabelle.
 import Dexie, { type Table } from 'dexie'
 import { DEFAULT_SETTINGS } from './defaults'
-import { finishEffects, lastKey, type BuildContext } from './session'
+import { nextPosition, slotKey } from './program531'
+import { afterDayDone, completeDay, lastKey, type BuildContext } from './session'
 import type { BodyWeight, Day, Exercise, Lift, Session, SessionSet, Settings, TmChange } from './types'
 
 class ForzaDB extends Dexie {
@@ -24,6 +25,7 @@ class ForzaDB extends Dexie {
       sessions: 'id, status, startedAt, dayId',
       bodyweight: '++id, date',
     })
+    this.version(2).stores({ sessions: 'id, status, startedAt, dayId, slot' })
   }
 }
 
@@ -52,10 +54,9 @@ export async function doneSessions(): Promise<Session[]> {
 }
 
 /** Set dell'ultima sessione completata per ogni esercizio e ruolo. */
-export function lastSetsByExercise(done: Session[], excludeId?: string): Map<string, SessionSet[]> {
+export function lastSetsByExercise(done: Session[]): Map<string, SessionSet[]> {
   const map = new Map<string, SessionSet[]>()
   for (const s of done) {
-    if (s.id === excludeId) continue
     for (const ex of s.exercises) {
       const key = lastKey(ex.exerciseId, ex.role)
       if (!map.has(key)) map.set(key, ex.sets.filter((x) => x.type !== 'warmup'))
@@ -88,17 +89,55 @@ export async function setTm(exerciseId: string, tm: number, reason: string): Pro
   })
 }
 
-/** Chiude il workout: lo salva come completato, fa avanzare i principali e il giorno. */
-export async function finishSession(session: Session, sessionRpe: number | null): Promise<void> {
+/** "Fatto": salva il giorno nella settimana attuale; se la settimana è completa passa alla successiva. */
+export async function markDayDone(day: Day, plusReps: Map<string, number>): Promise<void> {
   const ctx = await buildContext()
   const days = await orderedDays()
-  const fx = finishEffects(session, ctx, days.map((d) => d.id))
+  const pos = ctx.settings.position
+  const inSlot = await db.sessions.where('slot').equals(slotKey(pos)).toArray()
+  if (inSlot.some((s) => s.dayId === day.id)) return
+  const session = completeDay(day, ctx, pos, plusReps)
+  const fx = afterDayDone(days, [...inSlot, session], ctx, pos)
+
   await db.transaction('rw', [db.sessions, db.lifts, db.settings], async () => {
-    await db.sessions.put({ ...session, status: 'done', endedAt: Date.now(), sessionRpe })
-    for (const u of fx.lifts) {
-      const lift = ctx.lifts.get(u.exerciseId)!
-      await db.lifts.put({ ...lift, position: u.position, pendingTm: u.pendingTm })
+    if (fx) {
+      session.undo = {
+        position: pos,
+        pendingTm: fx.pendingTm.map((p) => ({ exerciseId: p.exerciseId, pendingTm: ctx.lifts.get(p.exerciseId)?.pendingTm ?? null })),
+      }
+      for (const p of fx.pendingTm) {
+        const lift = ctx.lifts.get(p.exerciseId)
+        if (lift) await db.lifts.put({ ...lift, pendingTm: p.pendingTm })
+      }
+      await db.settings.put({ ...ctx.settings, position: fx.position })
     }
-    await db.settings.put({ ...ctx.settings, nextDayIdx: fx.nextDayIdx, microcycle: fx.microcycle, timer: null })
+    await db.sessions.put(session)
   })
+}
+
+/**
+ * Toglie la spunta a un giorno. Si può solo nella settimana attuale, oppure per l'ultimo giorno che ha fatto
+ * avanzare la settimana (finché nella nuova settimana non è stato fatto niente). Restituisce false se non si può.
+ */
+export async function unmarkDay(session: Session): Promise<boolean> {
+  const settings = await getSettings()
+  const pos = settings.position
+  if (session.slot === slotKey(pos)) {
+    await db.sessions.delete(session.id)
+    return true
+  }
+  const undo = session.undo
+  if (!undo) return false
+  const advancedTo = nextPosition(settings.cycleConfig, undo.position)
+  if (slotKey(advancedTo) !== slotKey(pos)) return false
+  if ((await db.sessions.where('slot').equals(slotKey(pos)).count()) > 0) return false
+  await db.transaction('rw', [db.sessions, db.lifts, db.settings], async () => {
+    for (const p of undo.pendingTm) {
+      const lift = await db.lifts.get(p.exerciseId)
+      if (lift) await db.lifts.put({ ...lift, pendingTm: p.pendingTm })
+    }
+    await db.settings.put({ ...settings, position: undo.position })
+    await db.sessions.delete(session.id)
+  })
+  return true
 }

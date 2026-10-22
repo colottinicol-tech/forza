@@ -26,13 +26,14 @@ export async function applyImport(d: ImportData): Promise<void> {
       await db.lifts.put({ ...lift, tm: t.tm, pendingTm: null })
       await db.tmHistory.add({ exerciseId: t.exerciseId, date: now, tm: t.tm, reason: t.reason })
     }
-    let { nextDayIdx } = settings
-    if (d.days) {
-      await db.days.bulkPut(d.days)
-      const all = await db.days.orderBy('order').toArray()
-      nextDayIdx = d.nextDayId ? Math.max(0, all.findIndex((x) => x.id === d.nextDayId)) : Math.min(nextDayIdx, Math.max(0, all.length - 1))
-    }
-    await db.settings.put({ ...settings, ...d.settings, nextDayIdx, id: 'main' })
+    if (d.days) await db.days.bulkPut(d.days)
+    await db.settings.put({
+      ...settings,
+      ...d.settings,
+      cycleConfig: { ...settings.cycleConfig, ...d.cycleConfig },
+      position: d.position ?? settings.position,
+      id: 'main',
+    })
   })
 }
 

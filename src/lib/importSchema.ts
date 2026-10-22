@@ -1,7 +1,7 @@
 // "Importa da Claude": formato del JSON (vedi PROGRAM_SCHEMA.md), validazione e anteprima.
 import { defaultExercise, defaultLift } from './defaults'
-import { proposeTm, weeksOfCycle, WEEK_LABEL } from './program531'
-import type { Day, Exercise, Lift, PlannedExercise, Settings, TmRule, WeekKind } from './types'
+import { positionLabel, proposeTm, weeksOfCycle } from './program531'
+import type { CycleConfig, Day, Exercise, Lift, PlannedExercise, Position, Settings, TmRule, WeekKind } from './types'
 
 export const IMPORT_FORMAT = 'forza-import'
 export const IMPORT_VERSION = 1
@@ -13,7 +13,10 @@ export interface ImportData {
   lifts: Lift[]
   tmChanges: { exerciseId: string; tm: number; reason: string }[]
   days: Day[] | null
-  nextDayId: string | null
+  /** Struttura dei cicli (scarico ogni N cicli, Forever...), uguale per tutti i principali. */
+  cycleConfig: Partial<CycleConfig>
+  /** Settimana in cui si trova il programma (una sola per tutti gli esercizi). */
+  position: Position | null
 }
 
 export interface ExistingState {
@@ -108,6 +111,7 @@ export function validateImport(raw: unknown, existing: ExistingState): ImportRes
 
   // Impostazioni
   const settings: Partial<Settings> = {}
+  const cycleConfig: Partial<CycleConfig> = {}
   if (input.settings !== undefined) {
     if (!isObj(input.settings)) c.fail('settings', 'deve essere un oggetto')
     else {
@@ -122,6 +126,16 @@ export function validateImport(raw: unknown, existing: ExistingState): ImportRes
       set('lowerIncrement', c.num(s, 'lowerIncrement', 'settings', { min: 0, max: 20, optional: true }))
       set('restAccessory', c.num(s, 'restAccessory', 'settings', { min: 0, max: 900, optional: true }))
       set('barWeight', c.num(s, 'barWeight', 'settings', { min: 0, max: 50, optional: true }))
+      const tpl = c.oneOf(s, 'template', 'settings', ['original', 'forever'] as const)
+      if (tpl) cycleConfig.template = tpl
+      const every = c.num(s, 'deloadEvery', 'settings', { min: 1, max: 10, optional: true })
+      if (every !== undefined) cycleConfig.deloadEvery = every
+      const leader = c.num(s, 'leaderCycles', 'settings', { min: 1, max: 10, optional: true })
+      if (leader !== undefined) cycleConfig.leaderCycles = leader
+      const anchor = c.num(s, 'anchorCycles', 'settings', { min: 0, max: 10, optional: true })
+      if (anchor !== undefined) cycleConfig.anchorCycles = anchor
+      const seventh = c.oneOf(s, 'seventhWeek', 'settings', ['deload', 'tmtest'] as const)
+      if (seventh) cycleConfig.seventhWeek = seventh
       const wu = c.arr(s, 'warmup', 'settings')
       if (wu) {
         const list: Settings['warmup'] = []
@@ -190,11 +204,12 @@ export function validateImport(raw: unknown, existing: ExistingState): ImportRes
     const tm = c.num(l, 'tm', p, { min: 1, max: 1000 })
     if (tm === undefined) return
     const lift: Lift = { ...(existing.lifts.get(id) ?? defaultLift(id, tm)), tm, pendingTm: null }
-    lift.template = c.oneOf(l, 'template', p, ['original', 'forever'] as const) ?? lift.template
-    lift.deloadEvery = c.num(l, 'deloadEvery', p, { min: 1, max: 10, optional: true }) ?? lift.deloadEvery
-    lift.leaderCycles = c.num(l, 'leaderCycles', p, { min: 1, max: 10, optional: true }) ?? lift.leaderCycles
-    lift.anchorCycles = c.num(l, 'anchorCycles', p, { min: 0, max: 10, optional: true }) ?? lift.anchorCycles
-    lift.seventhWeek = c.oneOf(l, 'seventhWeek', p, ['deload', 'tmtest'] as const) ?? lift.seventhWeek
+    // Tutti i principali avanzano insieme: struttura dei cicli e posizione stanno in "settings" e "position".
+    for (const k of ['template', 'deloadEvery', 'leaderCycles', 'anchorCycles', 'seventhWeek', 'position']) {
+      if (l[k] !== undefined) {
+        c.fail(`${p}.${k}`, k === 'position' ? 'non si usa più qui: la posizione è una sola, in "position" in alto' : 'non si usa più qui: va in "settings"')
+      }
+    }
 
     if (l.fsl !== undefined) {
       if (!isObj(l.fsl)) c.fail(`${p}.fsl`, 'deve essere un oggetto { "S1": { "sets", "reps" }, ... }')
@@ -236,24 +251,6 @@ export function validateImport(raw: unknown, existing: ExistingState): ImportRes
         for (const k of ['work', 'beforePlus', 'afterPlus', 'fsl', 'fslMissed'] as const) {
           const v = c.num(r, k, `${p}.rest`, { min: 0, max: 900, optional: true })
           if (v !== undefined && v !== null) lift.rest = { ...lift.rest, [k]: v }
-        }
-      }
-    }
-    if (l.position !== undefined) {
-      const pp = `${p}.position`
-      if (!isObj(l.position)) c.fail(pp, 'deve essere { "cycle", "week" }')
-      else {
-        const cycle = c.num(l.position, 'cycle', pp, { min: 1, max: 999 })
-        const week = c.oneOf(l.position, 'week', pp, WEEKS)
-        if (l.position.week === undefined) c.fail(`${pp}.week`, `manca (${WEEKS.join(', ')})`)
-        const extra = c.bool(l.position, 'extra', pp) ?? false
-        if (cycle !== undefined && week) {
-          if (extra) lift.position = { cycle, weekIdx: 0, extra: week }
-          else {
-            const idx = weeksOfCycle(lift, cycle).indexOf(week)
-            if (idx < 0) c.fail(pp, `il ciclo ${cycle} di questo esercizio non ha la settimana ${week} (usa "extra": true)`)
-            else lift.position = { cycle, weekIdx: idx, extra: null }
-          }
         }
       }
     }
@@ -336,17 +333,32 @@ export function validateImport(raw: unknown, existing: ExistingState): ImportRes
     })
   }
 
-  let nextDayId: string | null = null
-  if (input.nextDay !== undefined) {
-    if (typeof input.nextDay !== 'string' || !days?.some((d) => d.id === input.nextDay)) {
-      c.fail('nextDay', 'deve essere l\'id di uno dei giorni in "days"')
-    } else nextDayId = input.nextDay
+  const cfg: CycleConfig = { ...existing.settings.cycleConfig, ...cycleConfig }
+  let position: Position | null = null
+  if (input.position !== undefined) {
+    const pp = 'position'
+    if (!isObj(input.position)) c.fail(pp, 'deve essere { "cycle": numero, "week": "S1" }')
+    else {
+      const cycle = c.num(input.position, 'cycle', pp, { min: 1, max: 999 })
+      const week = c.oneOf(input.position, 'week', pp, WEEKS)
+      if (input.position.week === undefined) c.fail(`${pp}.week`, `manca (${WEEKS.join(', ')})`)
+      const extra = c.bool(input.position, 'extra', pp) ?? false
+      if (cycle !== undefined && week) {
+        if (extra) position = { cycle, weekIdx: 0, extra: week }
+        else {
+          const idx = weeksOfCycle(cfg, cycle).indexOf(week)
+          if (idx < 0) c.fail(pp, `il ciclo ${cycle} non ha la settimana ${week} (usa "extra": true)`)
+          else position = { cycle, weekIdx: idx, extra: null }
+        }
+      }
+    }
   }
+  if (input.nextDay !== undefined) c.fail('nextDay', 'non si usa più: il giorno si sceglie dalla schermata Oggi')
   if (mode === 'replace' && !days) c.fail('days', 'con "mode": "replace" servono i giorni del programma')
 
   if (c.errors.length) return { ok: false, errors: c.errors }
 
-  const data: ImportData = { mode, settings, exercises, lifts, tmChanges, days, nextDayId }
+  const data: ImportData = { mode, settings, exercises, lifts, tmChanges, days, cycleConfig, position }
   return { ok: true, data, preview: buildPreview(data, existing) }
 }
 
@@ -380,13 +392,19 @@ function buildPreview(d: ImportData, existing: ExistingState): string[] {
   const changed = d.exercises.filter((e) => existing.exercises.has(e.id))
   if (added.length) out.push(`Nuovi esercizi (${added.length}): ${added.map((e) => e.name).join(', ')}.`)
   if (changed.length) out.push(`Esercizi aggiornati (${changed.length}): ${changed.map((e) => e.name).join(', ')}.`)
+  const cfg = { ...existing.settings.cycleConfig, ...d.cycleConfig }
+  if (Object.keys(d.cycleConfig).length) {
+    out.push(
+      cfg.template === 'forever'
+        ? `Cicli: 5/3/1 Forever, ${cfg.leaderCycles} Leader + ${cfg.anchorCycles} Anchor.`
+        : `Cicli: settimana di scarico ogni ${cfg.deloadEvery === 1 ? 'ciclo' : `${cfg.deloadEvery} cicli`}.`,
+    )
+  }
+  if (d.position) out.push(`Si parte da: ${positionLabel(cfg, d.position)}.`)
   for (const l of d.lifts) {
     const prev = existing.lifts.get(l.exerciseId)
-    const pos = l.position.extra
-      ? `ciclo ${l.position.cycle}, ${WEEK_LABEL[l.position.extra]} extra`
-      : `ciclo ${l.position.cycle}, ${WEEK_LABEL[weeksOfCycle(l, l.position.cycle)[l.position.weekIdx]]}`
     const tm = prev && prev.tm !== l.tm ? `TM ${fmt(prev.tm)} → ${fmt(l.tm)}` : `TM ${fmt(l.tm)}`
-    let line = `${name(l.exerciseId)} (5/3/1): ${tm} kg, ${pos}.`
+    let line = `${name(l.exerciseId)} (5/3/1): ${tm} kg.`
     if (l.pendingTm) line += ` Da confermare il nuovo TM: ${fmt(l.pendingTm.proposed)} kg.`
     out.push(line)
   }
@@ -405,7 +423,6 @@ function buildPreview(d: ImportData, existing: ExistingState): string[] {
       )
     }
   }
-  if (d.nextDayId) out.push(`Prossimo allenamento: «${d.days?.find((x) => x.id === d.nextDayId)?.name}».`)
   if (!out.length) out.push('Nessuna modifica.')
   return out
 }

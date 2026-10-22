@@ -9,7 +9,8 @@ const valid = {
   format: 'forza-import',
   version: 1,
   mode: 'replace',
-  settings: { roundingStep: 2.5, plusRepsBonus: 1 },
+  settings: { roundingStep: 2.5, plusRepsBonus: 1, deloadEvery: 2 },
+  position: { cycle: 2, week: 'S1' },
   exercises: [
     { id: 'es-a', name: 'Esercizio A', barbell: true, bodyPart: 'lower', increment: 5 },
     { id: 'es-b', name: 'Esercizio B', loadType: 'assisted', muscles: { dorsali: 1, bicipiti: 0.5 } },
@@ -18,10 +19,8 @@ const valid = {
     {
       exerciseId: 'es-a',
       tm: 100,
-      deloadEvery: 2,
       fsl: { S1: { sets: 3, reps: 5 } },
       tmRules: [{ minReps: 4, increment: 5 }],
-      position: { cycle: 2, week: 'S1' },
       awaitingTmReview: { s3PlusReps: 5 },
     },
   ],
@@ -36,18 +35,20 @@ const valid = {
       ],
     },
   ],
-  nextDay: 'g1',
 }
 
 describe('validazione import', () => {
-  it('accetta un programma completo e prepara l\'anteprima', () => {
+  it("accetta un programma completo e prepara l'anteprima", () => {
     const r = validateImport(valid, empty)
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-    expect(r.data.lifts[0].position).toEqual({ cycle: 2, weekIdx: 0, extra: null })
+    if (!r.ok) throw new Error(r.errors.join('\n'))
+    expect(r.data.position).toEqual({ cycle: 2, weekIdx: 0, extra: null })
+    expect(r.data.cycleConfig).toEqual({ deloadEvery: 2 })
     expect(r.data.lifts[0].pendingTm?.proposed).toBe(105)
     expect(r.data.days![0].exercises[2].sets).toBeNull()
-    expect(r.preview.join('\n')).toContain('Da completare')
+    const preview = r.preview.join('\n')
+    expect(preview).toContain('Da completare')
+    expect(preview).toContain('Si parte da: Ciclo 2 · S1')
+    expect(preview).toContain('scarico ogni 2 cicli')
   })
 
   it('accetta il JSON come testo, anche dentro un blocco ```json', () => {
@@ -56,8 +57,7 @@ describe('validazione import', () => {
   })
 
   it('rifiuta testo che non è JSON', () => {
-    const r = validateImport('ciao', empty)
-    expect(r.ok).toBe(false)
+    expect(validateImport('ciao', empty).ok).toBe(false)
   })
 
   it('segnala tutti gli errori con la posizione', () => {
@@ -68,8 +68,7 @@ describe('validazione import', () => {
       days: [{ id: 'g1', name: 'G', exercises: [{ exerciseId: 'manca', role: 'accessory' }] }],
     }
     const r = validateImport(bad, empty)
-    expect(r.ok).toBe(false)
-    if (r.ok) return
+    if (r.ok) throw new Error('doveva fallire')
     expect(r.errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining('exercises[0].loadType'),
@@ -80,16 +79,19 @@ describe('validazione import', () => {
   })
 
   it('main531 senza voce in "lifts" è un errore', () => {
-    const bad = { ...valid, lifts: [] }
-    const r = validateImport(bad, empty)
-    expect(r.ok).toBe(false)
+    expect(validateImport({ ...valid, lifts: [] }, empty).ok).toBe(false)
+  })
+
+  it('la posizione non va più dentro i singoli esercizi', () => {
+    const lift = { ...valid.lifts[0], position: { cycle: 1, week: 'S1' } }
+    const r = validateImport({ ...valid, lifts: [lift] }, empty)
+    if (r.ok) throw new Error('doveva fallire')
+    expect(r.errors[0]).toContain('"position" in alto')
   })
 
   it('settimana che non esiste nel ciclo: va indicata come extra', () => {
-    const lift = { ...valid.lifts[0], position: { cycle: 1, week: 'DELOAD' } }
-    expect(validateImport({ ...valid, lifts: [lift] }, empty).ok).toBe(false)
-    const extra = { ...lift, position: { cycle: 1, week: 'DELOAD', extra: true } }
-    expect(validateImport({ ...valid, lifts: [extra] }, empty).ok).toBe(true)
+    expect(validateImport({ ...valid, position: { cycle: 1, week: 'DELOAD' } }, empty).ok).toBe(false)
+    expect(validateImport({ ...valid, position: { cycle: 1, week: 'DELOAD', extra: true } }, empty).ok).toBe(true)
   })
 
   it('formato o versione sbagliati', () => {
@@ -99,14 +101,14 @@ describe('validazione import', () => {
 
   it('modifica solo il TM di un esercizio esistente', () => {
     const r1 = validateImport(valid, empty)
-    if (!r1.ok) throw new Error('setup')
+    if (!r1.ok) throw new Error(r1.errors.join('\n'))
     const existing: ExistingState = {
       exercises: new Map(r1.data.exercises.map((e) => [e.id, e])),
       lifts: new Map(r1.data.lifts.map((l) => [l.exerciseId, l])),
       settings: { ...DEFAULT_SETTINGS },
     }
     const r = validateImport({ format: 'forza-import', version: 1, tmChanges: [{ exerciseId: 'es-a', tm: 110 }] }, existing)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(r.preview.join(' ')).toContain('100 → 110')
+    if (!r.ok) throw new Error(r.errors.join('\n'))
+    expect(r.preview.join(' ')).toContain('100 → 110')
   })
 })

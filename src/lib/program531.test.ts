@@ -10,72 +10,70 @@ import {
   proposeTm,
   repeatLastWeek,
   skipWeek,
+  slotKey,
   weeksOfCycle,
 } from './program531'
-import type { Lift } from './types'
+import type { CycleConfig, Lift, Position } from './types'
 
 const settings = { ...DEFAULT_SETTINGS }
+const cfg = (over: Partial<CycleConfig> = {}): CycleConfig => ({ ...DEFAULT_SETTINGS.cycleConfig, ...over })
+const pos = (cycle: number, weekIdx: number, extra: Position['extra'] = null): Position => ({ cycle, weekIdx, extra })
 const lift = (over: Partial<Lift> = {}): Lift => ({ ...defaultLift('x', 100), ...over })
-const at = (l: Lift, cycle: number, weekIdx: number, extra: Lift['position']['extra'] = null): Lift => ({
-  ...l,
-  position: { cycle, weekIdx, extra },
-})
 
 describe('settimane del ciclo', () => {
   it('originale: scarico a ogni ciclo', () => {
-    expect(weeksOfCycle(lift(), 1)).toEqual(['S1', 'S2', 'S3', 'DELOAD'])
+    expect(weeksOfCycle(cfg(), 1)).toEqual(['S1', 'S2', 'S3', 'DELOAD'])
   })
   it('scarico ogni 2 cicli', () => {
-    const l = lift({ deloadEvery: 2 })
-    expect(weeksOfCycle(l, 1)).toEqual(['S1', 'S2', 'S3'])
-    expect(weeksOfCycle(l, 2)).toEqual(['S1', 'S2', 'S3', 'DELOAD'])
-    expect(weeksOfCycle(l, 3)).toEqual(['S1', 'S2', 'S3'])
+    const c = cfg({ deloadEvery: 2 })
+    expect(weeksOfCycle(c, 1)).toEqual(['S1', 'S2', 'S3'])
+    expect(weeksOfCycle(c, 2)).toEqual(['S1', 'S2', 'S3', 'DELOAD'])
+    expect(weeksOfCycle(c, 3)).toEqual(['S1', 'S2', 'S3'])
   })
   it('Forever: 2 Leader + 7ª, 1 Anchor + 7ª', () => {
-    const l = lift({ template: 'forever', leaderCycles: 2, anchorCycles: 1, seventhWeek: 'tmtest' })
-    expect(weeksOfCycle(l, 1)).toEqual(['S1', 'S2', 'S3'])
-    expect(weeksOfCycle(l, 2)).toEqual(['S1', 'S2', 'S3', 'SEVENTH_TEST'])
-    expect(weeksOfCycle(l, 3)).toEqual(['S1', 'S2', 'S3', 'SEVENTH_TEST'])
-    expect(weeksOfCycle(l, 4)).toEqual(['S1', 'S2', 'S3'])
-    expect(positionLabel(at(l, 3, 0))).toBe('Ciclo 3 (Anchor) · S1')
+    const c = cfg({ template: 'forever', leaderCycles: 2, anchorCycles: 1, seventhWeek: 'tmtest' })
+    expect(weeksOfCycle(c, 1)).toEqual(['S1', 'S2', 'S3'])
+    expect(weeksOfCycle(c, 2)).toEqual(['S1', 'S2', 'S3', 'SEVENTH_TEST'])
+    expect(weeksOfCycle(c, 3)).toEqual(['S1', 'S2', 'S3', 'SEVENTH_TEST'])
+    expect(weeksOfCycle(c, 4)).toEqual(['S1', 'S2', 'S3'])
+    expect(positionLabel(c, pos(3, 0))).toBe('Ciclo 3 (Anchor) · S1')
   })
 })
 
 describe('avanzamento', () => {
+  const c = cfg({ deloadEvery: 2 })
   it('passa alla settimana dopo e al ciclo dopo', () => {
-    const l = lift({ deloadEvery: 2 })
-    expect(nextPosition(at(l, 1, 1))).toEqual({ cycle: 1, weekIdx: 2, extra: null })
-    expect(nextPosition(at(l, 1, 2))).toEqual({ cycle: 2, weekIdx: 0, extra: null })
-    expect(nextPosition(at(l, 2, 2))).toEqual({ cycle: 2, weekIdx: 3, extra: null })
-    expect(currentWeek(at(l, 2, 3))).toBe('DELOAD')
+    expect(nextPosition(c, pos(1, 1))).toEqual(pos(1, 2))
+    expect(nextPosition(c, pos(1, 2))).toEqual(pos(2, 0))
+    expect(nextPosition(c, pos(2, 2))).toEqual(pos(2, 3))
+    expect(currentWeek(c, pos(2, 3))).toBe('DELOAD')
+    expect(positionLabel(c, pos(2, 3))).toBe('Ciclo 2 · S4 scarico')
   })
   it('ripeti la settimana appena fatta', () => {
-    const l = at(lift(), 1, 2) // tocca la S3, l'ultima fatta è la S2
-    const p = repeatLastWeek(l)
-    expect(p).toEqual({ cycle: 1, weekIdx: 2, extra: 'S2' })
-    const repeated = { ...l, position: p }
-    expect(currentWeek(repeated)).toBe('S2')
-    expect(positionLabel(repeated)).toBe('Ciclo 1 · S2 extra')
-    // Fatta la ripetizione, si riprende dalla S3.
-    expect(nextPosition(repeated)).toEqual({ cycle: 1, weekIdx: 2, extra: null })
+    const p = repeatLastWeek(c, pos(1, 2)) // tocca la S3, l'ultima fatta è la S2
+    expect(p).toEqual(pos(1, 2, 'S2'))
+    expect(currentWeek(c, p)).toBe('S2')
+    expect(positionLabel(c, p)).toBe('Ciclo 1 · S2 extra')
+    expect(nextPosition(c, p)).toEqual(pos(1, 2)) // poi si riprende dalla S3
   })
-  it('ripeti a inizio ciclo torna all\'ultima settimana del ciclo prima', () => {
-    expect(repeatLastWeek(at(lift({ deloadEvery: 2 }), 2, 0)).extra).toBe('S3')
-    expect(repeatLastWeek(at(lift(), 1, 0))).toEqual({ cycle: 1, weekIdx: 0, extra: null })
+  it("ripeti a inizio ciclo torna all'ultima settimana del ciclo prima", () => {
+    expect(repeatLastWeek(c, pos(2, 0)).extra).toBe('S3')
+    expect(repeatLastWeek(c, pos(1, 0))).toEqual(pos(1, 0))
   })
   it('settimana extra e salto', () => {
-    const l = at(lift(), 1, 1)
-    const extra = { ...l, position: insertExtraWeek(l, 'DELOAD') }
-    expect(currentWeek(extra)).toBe('DELOAD')
-    expect(skipWeek(extra)).toEqual({ cycle: 1, weekIdx: 1, extra: null })
-    expect(skipWeek(l)).toEqual({ cycle: 1, weekIdx: 2, extra: null })
+    const extra = insertExtraWeek(pos(1, 1), 'DELOAD')
+    expect(currentWeek(c, extra)).toBe('DELOAD')
+    expect(skipWeek(c, extra)).toEqual(pos(1, 1))
+    expect(skipWeek(c, pos(1, 1))).toEqual(pos(1, 2))
+  })
+  it('ogni settimana ha uno slot diverso, anche quelle extra', () => {
+    expect(slotKey(pos(1, 2))).not.toBe(slotKey(pos(1, 2, 'S2')))
   })
 })
 
-describe('set pianificati', () => {
+describe('pesi pianificati', () => {
   it('riscaldamento, lavoro e FSL arrotondati', () => {
-    const l = lift({ tm: 100, fsl: { S1: { sets: 3, reps: 5 } } })
-    const sets = buildMainSets(l, settings, 'S1')
+    const sets = buildMainSets(lift({ tm: 100, fsl: { S1: { sets: 3, reps: 5 } } }), settings, 'S1')
     expect(sets.map((s) => [s.type, s.weight, s.targetReps])).toEqual([
       ['warmup', 40, 5],
       ['warmup', 50, 5],
@@ -89,8 +87,7 @@ describe('set pianificati', () => {
     ])
   })
   it('scarico senza riscaldamento né FSL', () => {
-    const l = lift({ tm: 110, fsl: { S1: { sets: 5, reps: 5 } } })
-    expect(buildMainSets(l, settings, 'DELOAD').map((s) => s.weight)).toEqual([45, 55, 65])
+    expect(buildMainSets(lift({ tm: 110, fsl: { S1: { sets: 5, reps: 5 } } }), settings, 'DELOAD').map((s) => s.weight)).toEqual([45, 55, 65])
   })
   it('7ª settimana di scarico: 80% × 3-5', () => {
     const sets = buildMainSets(lift({ tm: 100 }), settings, 'SEVENTH_DELOAD').filter((s) => s.type !== 'warmup')
@@ -106,7 +103,7 @@ describe('proposta del nuovo TM', () => {
     expect(proposeTm(lift({ tm: 100 }), upper, settings, 3).proposed).toBe(102.5)
     expect(proposeTm(lift({ tm: 100 }), lower, settings, 1).proposed).toBe(105)
   })
-  it('sotto l\'obiettivo suggerisce di non aumentare', () => {
+  it("sotto l'obiettivo suggerisce di non aumentare", () => {
     const p = proposeTm(lift({ tm: 100 }), lower, settings, 0)
     expect(p.proposed).toBe(100)
     expect(p.reason).toContain('meglio non aumentare')
